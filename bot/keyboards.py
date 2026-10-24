@@ -20,11 +20,12 @@ BTN_EDITING = "🎬 Montaj"
 BTN_REPORT = "📊 Hisobot"
 BTN_STAFF = "👥 Xodimlar"
 BTN_EVENT_TYPES = "🎉 Tadbir turlari"
+BTN_ADD_OPERATOR = "➕ Operator qo'shish"
 BTN_CANCEL = "❌ Bekor qilish"
 
 MENU_BUTTONS = {
     BTN_NEW_ORDER, BTN_ORDERS, BTN_UPCOMING, BTN_DEBTS, BTN_FLASH,
-    BTN_EDITING, BTN_REPORT, BTN_STAFF, BTN_EVENT_TYPES,
+    BTN_EDITING, BTN_REPORT, BTN_STAFF, BTN_EVENT_TYPES, BTN_ADD_OPERATOR,
 }
 
 # Keyingi bosqichlarda quriladigan bo'limlar
@@ -37,7 +38,8 @@ def admin_menu() -> ReplyKeyboardMarkup:
         [BTN_ORDERS, BTN_UPCOMING],
         [BTN_DEBTS, BTN_FLASH],
         [BTN_EDITING, BTN_REPORT],
-        [BTN_STAFF, BTN_EVENT_TYPES],
+        [BTN_STAFF, BTN_ADD_OPERATOR],
+        [BTN_EVENT_TYPES],
     ]
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=t) for t in row] for row in rows],

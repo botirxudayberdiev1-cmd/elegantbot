@@ -8,6 +8,7 @@ from ..config import ROLES
 from ..db import Database
 from ..filters import IsAdmin
 from ..keyboards import (
+    BTN_ADD_OPERATOR,
     BTN_STAFF,
     RoleCb,
     StaffCb,
@@ -132,8 +133,20 @@ async def delete_staff(call: CallbackQuery, callback_data: StaffCb, db: Database
 
 # ---------- Yangi xodim qo'shish ----------
 
+@router.message(StateFilter(None), F.text == BTN_ADD_OPERATOR)
+async def add_operator_start(message: Message, state: FSMContext):
+    await state.clear()
+    await state.update_data(role="operator")
+    await state.set_state(AddStaff.name)
+    await message.answer(
+        "➕ <b>Yangi operator</b>\n\nOperatorning ism-familiyasini yozing:",
+        reply_markup=cancel_kb(),
+    )
+
+
 @router.callback_query(StaffCb.filter(F.action == "add"))
 async def add_start(call: CallbackQuery, state: FSMContext):
+    await state.clear()
     await state.set_state(AddStaff.name)
     await call.message.answer("Xodimning ism-familiyasini yozing:", reply_markup=cancel_kb())
     await call.answer()
@@ -146,6 +159,11 @@ async def add_name(message: Message, state: FSMContext):
         await message.answer("Ism 2–64 belgi bo'lishi kerak. Qaytadan yozing:")
         return
     await state.update_data(name=name)
+    if (await state.get_data()).get("role"):
+        # «Operator qo'shish» tugmasidan kelgan — lavozim allaqachon ma'lum
+        await state.set_state(AddStaff.phone)
+        await message.answer("Telefon raqamini yozing (masalan: 90 123 45 67):")
+        return
     await state.set_state(AddStaff.role)
     await message.answer("Lavozimini tanlang:", reply_markup=roles_kb())
 
