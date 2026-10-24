@@ -184,6 +184,7 @@ def operators_kb(operators, selected: list[int], busy: dict[int, list[str]]) -> 
         if not op["tg_id"]:
             extra += " · ulanmagan"
         rows.append([_btn(f"{mark} {op['name']}{extra}", "op", op["id"])])
+    rows.append([_btn("➕ Yangi operator qo'shish", "op_new")])
     if selected:
         rows.append([_btn(f"➡️ Tayyor ({len(selected)} ta)", "op_done")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

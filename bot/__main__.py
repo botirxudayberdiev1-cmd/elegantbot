@@ -9,11 +9,14 @@ from aiogram.enums import ParseMode
 from .config import ADMIN_IDS, BOT_TOKEN, DB_PATH
 from .db import Database
 from .handlers import admin, event_types, operator, orders, staff, start
-from .middlewares import MenuResetMiddleware
+from .middlewares import LogMiddleware, MenuResetMiddleware
+from .storage import SQLiteStorage
 
 
 def build_dispatcher(db: Database) -> Dispatcher:
-    dp = Dispatcher(db=db)
+    dp = Dispatcher(storage=SQLiteStorage(db), db=db)
+    dp.message.outer_middleware(LogMiddleware())
+    dp.callback_query.outer_middleware(LogMiddleware())
     dp.message.outer_middleware(MenuResetMiddleware())
     # Tartib muhim: avval /start, keyin admin (bekor qilish), keyin bo'limlar, oxirida "tushunmadim"
     dp.include_routers(

@@ -29,6 +29,7 @@ from ..keyboards import (
 from ..notify import send_assignment
 from ..utils import (
     escape,
+    invite_link,
     fmt_date,
     fmt_money,
     normalize_phone,
@@ -56,6 +57,8 @@ class NewOrder(StatesGroup):
     ev_time = State()
     ev_address = State()
     ev_ops = State()
+    op_new_name = State()
+    op_new_phone = State()
     ev_pay = State()
     ev_next = State()
     deposit = State()
@@ -238,19 +241,20 @@ async def ev_address(message: Message, state: FSMContext, db: Database):
     data = await state.get_data()
     cur = {**data["cur"], "address": address, "op_ids": []}
     await state.update_data(cur=cur)
+    await show_operators(message, state, db)
 
+
+async def show_operators(message: Message, state: FSMContext, db: Database):
+    data = await state.get_data()
+    cur = data["cur"]
     operators = await db.operators_list()
-    if not operators:
-        await message.answer(
-            "⚠️ Ro'yxatda operator yo'q. Avval «👥 Xodimlar» bo'limida operator qo'shing.\n"
-            "Hozircha bu tadbir operatorsiz saqlanadi."
-        )
-        await finish_event(message, state)
-        return
     await state.set_state(NewOrder.ev_ops)
+    text = "Operatorlarni tanlang (bir nechtasini tanlash mumkin):"
+    if not operators:
+        text = "Ro'yxatda hali operator yo'q. «➕ Yangi operator qo'shish» tugmasini bosing:"
     await message.answer(
-        "Operatorlarni tanlang (bir nechtasini tanlash mumkin):",
-        reply_markup=operators_kb(operators, [], await busy_for(db, data, cur["date"])),
+        text,
+        reply_markup=operators_kb(operators, cur["op_ids"], await busy_for(db, data, cur["date"])),
     )
 
 
@@ -278,6 +282,52 @@ async def ev_op_toggle(call: CallbackQuery, callback_data: OrdCb, state: FSMCont
         await db.operators_list(), ids, await busy_for(db, data, cur["date"])
     ))
     await call.answer()
+
+
+# Operator tanlash paytida yangi operator qo'shish (buyurtma yozish to'xtamaydi)
+@router.callback_query(NewOrder.ev_ops, OrdCb.filter(F.action == "op_new"))
+async def op_new(call: CallbackQuery, state: FSMContext):
+    await call.message.edit_reply_markup(reply_markup=None)
+    await state.set_state(NewOrder.op_new_name)
+    await call.message.answer("➕ Yangi operatorning ism-familiyasi:")
+    await call.answer()
+
+
+@router.message(NewOrder.op_new_name, F.text)
+async def op_new_name(message: Message, state: FSMContext):
+    name = message.text.strip()
+    if not 2 <= len(name) <= 64:
+        await message.answer("Ism 2–64 belgi bo'lishi kerak. Qaytadan yozing:")
+        return
+    await state.update_data(new_op_name=name)
+    await state.set_state(NewOrder.op_new_phone)
+    await message.answer(f"<b>{escape(name)}</b> telefon raqami? (masalan: 90 123 45 67)")
+
+
+@router.message(NewOrder.op_new_phone, F.text)
+async def op_new_phone(message: Message, state: FSMContext, db: Database, bot: Bot):
+    phone = normalize_phone(message.text)
+    if not phone:
+        await message.answer(
+            "Raqam noto'g'ri. O'zbekiston raqami 9 xonali bo'ladi: 90 123 45 67\n"
+            "Qaytadan yozing:"
+        )
+        return
+    data = await state.get_data()
+    staff_id = await db.staff_add(data["new_op_name"], "operator", phone)
+    s = await db.staff_get(staff_id)
+    cur = data["cur"]
+    cur["op_ids"].append(staff_id)  # yangi operator darhol tanlangan bo'ladi
+    await state.update_data(cur=cur, new_op_name=None)
+
+    link = await invite_link(bot, "s", s["invite_token"])
+    await message.answer(
+        f"✅ <b>{escape(s['name'])}</b> qo'shildi va tanlandi.\n\n"
+        "Botga ulanishi uchun unga shu havolani yuboring (ulanmasa, tadbir xabari bormaydi):\n"
+        f"{link}",
+        disable_web_page_preview=True,
+    )
+    await show_operators(message, state, db)
 
 
 @router.callback_query(NewOrder.ev_ops, OrdCb.filter(F.action == "op_done"))

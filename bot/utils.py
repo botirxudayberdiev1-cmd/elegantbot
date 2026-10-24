@@ -87,9 +87,16 @@ def fmt_date(iso: str) -> str:
 def normalize_phone(text: str) -> str | None:
     """'90 123 45 67', '+998901234567' kabi yozuvlarni '+998901234567' ko'rinishiga keltiradi."""
     digits = re.sub(r"\D", "", text)
+    if digits.startswith("00"):  # 00998... xalqaro yozuv
+        digits = digits[2:]
+    if len(digits) == 10 and digits.startswith("0"):  # 0901234567
+        digits = digits[1:]
     if len(digits) == 9:
         digits = "998" + digits
     if len(digits) == 12 and digits.startswith("998"):
+        return "+" + digits
+    # Chet el raqamlari (Rossiya, Qozog'iston...) — faqat "+" bilan yozilsa
+    if text.strip().startswith("+") and 10 <= len(digits) <= 15 and not digits.startswith("998"):
         return "+" + digits
     return None
 

@@ -96,6 +96,13 @@ CREATE TABLE IF NOT EXISTS reminders (
     UNIQUE (kind, ref_id, sent_on)
 );
 
+-- Yarim yozilgan jarayonlar (bot qayta ishga tushsa ham saqlanadi)
+CREATE TABLE IF NOT EXISTS fsm (
+    key   TEXT PRIMARY KEY,
+    state TEXT,
+    data  TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_events_date ON events(date);
 CREATE INDEX IF NOT EXISTS idx_assignments_staff ON assignments(staff_id);
 CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id);
