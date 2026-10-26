@@ -15,6 +15,12 @@ ROLES = {
     "admin": "Admin",
     "operator": "Operator",
     "montajchi": "Montajchi",
+    "fotograf": "Fotograf",
+    "dekorator": "Dekorator",
+    "taklifnomachi": "Taklifnomachi",
 }
+
+# Tadbirga (to'yga) boradigan lavozimlar — buyurtmada shulardan tanlanadi
+FIELD_ROLES = ("operator", "fotograf", "dekorator")
 
 DEFAULT_EVENT_TYPES = ["Osh", "Nikoh", "Bazm", "Kelin salom"]

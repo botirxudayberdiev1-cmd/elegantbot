@@ -1,9 +1,12 @@
 import os
+import re
 import secrets
 
 import aiosqlite
 
-from .config import ADMIN_IDS, DEFAULT_EVENT_TYPES
+from .config import ADMIN_IDS, DEFAULT_EVENT_TYPES, FIELD_ROLES, ROLES
+
+ROLE_CHECK = "CHECK (role IN (" + ", ".join(f"'{r}'" for r in ROLES) + "))"
 
 # Barcha 8 ta jadval birdaniga yaratiladi, keyingi bosqichlarda bazani o'zgartirish shart bo'lmaydi.
 SCHEMA = """
@@ -11,7 +14,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS staff (
     id           INTEGER PRIMARY KEY,
     name         TEXT NOT NULL,
-    role         TEXT NOT NULL CHECK (role IN ('admin', 'operator', 'montajchi')),
+    role         TEXT NOT NULL """ + ROLE_CHECK + """,
     phone        TEXT,
     tg_id        INTEGER UNIQUE,
     invite_token TEXT NOT NULL UNIQUE,
@@ -124,8 +127,9 @@ class Database:
             os.makedirs(folder, exist_ok=True)
         self.conn = await aiosqlite.connect(self.path)
         self.conn.row_factory = aiosqlite.Row
-        await self.conn.execute("PRAGMA foreign_keys = ON")
         await self.conn.executescript(SCHEMA)
+        await self._migrate_staff_roles()
+        await self.conn.execute("PRAGMA foreign_keys = ON")
         async with self.conn.execute("SELECT COUNT(*) FROM event_types") as cur:
             (count,) = await cur.fetchone()
         if count == 0:
@@ -133,6 +137,26 @@ class Database:
                 "INSERT INTO event_types (name) VALUES (?)", [(n,) for n in DEFAULT_EVENT_TYPES]
             )
         await self.conn.commit()
+
+    async def _migrate_staff_roles(self) -> None:
+        """Eski bazada staff jadvalidagi lavozimlar ro'yxati (CHECK) yangilanadi.
+
+        SQLite CHECK'ni o'zgartira olmaydi, shuning uchun jadval yangidan quriladi.
+        Ma'lumotlar va ID'lar saqlanadi. foreign_keys o'chiq paytda chaqiriladi.
+        """
+        row = await self._one("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'staff'")
+        if ROLE_CHECK in row["sql"]:
+            return
+        new_sql = re.sub(r"CHECK \(role IN \([^)]*\)\)", ROLE_CHECK, row["sql"], count=1)
+        new_sql = new_sql.replace("CREATE TABLE staff", "CREATE TABLE staff_new", 1)
+        await self.conn.executescript(
+            "BEGIN;"
+            + new_sql + ";"
+            "INSERT INTO staff_new SELECT * FROM staff;"
+            "DROP TABLE staff;"
+            "ALTER TABLE staff_new RENAME TO staff;"
+            "COMMIT;"
+        )
 
     async def close(self) -> None:
         if self.conn:
@@ -230,8 +254,13 @@ class Database:
     # ---------- Buyurtmalar ----------
 
     async def operators_list(self):
+        """Tadbirga boradigan xodimlar: operatorlar, fotograflar, dekoratorlar."""
+        marks = ", ".join("?" * len(FIELD_ROLES))
+        order = " ".join(f"WHEN '{r}' THEN {i}" for i, r in enumerate(FIELD_ROLES))
         return await self._all(
-            "SELECT * FROM staff WHERE active = 1 AND role = 'operator' ORDER BY name"
+            f"SELECT * FROM staff WHERE active = 1 AND role IN ({marks}) "
+            f"ORDER BY CASE role {order} END, name",
+            FIELD_ROLES,
         )
 
     async def staff_busy_on(self, day: str) -> dict[int, list[str]]:

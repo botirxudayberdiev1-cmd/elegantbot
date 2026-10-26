@@ -249,7 +249,7 @@ async def show_operators(message: Message, state: FSMContext, db: Database):
     cur = data["cur"]
     operators = await db.operators_list()
     await state.set_state(NewOrder.ev_ops)
-    text = "Operatorlarni tanlang (bir nechtasini tanlash mumkin):"
+    text = "Kim boradi? Operator, fotograf, dekoratorlarni tanlang (bir nechtasini tanlash mumkin):"
     if not operators:
         text = "Ro'yxatda hali operator yo'q. «➕ Yangi operator qo'shish» tugmasini bosing:"
     await message.answer(
@@ -342,7 +342,7 @@ async def ev_ops_done(call: CallbackQuery, state: FSMContext, db: Database):
     cur["ops"] = ops
     await state.update_data(cur=cur)
     names = ", ".join(escape(o["name"]) for o in ops)
-    await call.message.edit_text(f"👥 Operatorlar: <b>{names}</b>")
+    await call.message.edit_text(f"👥 Boradiganlar: <b>{names}</b>")
     await call.answer()
     await ask_next_pay(call.message, state)
 

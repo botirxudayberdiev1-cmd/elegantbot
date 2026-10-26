@@ -179,6 +179,8 @@ def operators_kb(operators, selected: list[int], busy: dict[int, list[str]]) -> 
     for op in operators:
         mark = "✅" if op["id"] in selected else "▫️"
         extra = ""
+        if op["role"] != "operator":
+            extra += f" · {ROLES[op['role']].lower()}"
         if op["id"] in busy:
             extra += f" · band {', '.join(busy[op['id']])}"
         if not op["tg_id"]:
