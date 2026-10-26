@@ -25,6 +25,7 @@ from ..keyboards import (
     order_event_types_kb,
     orders_list_kb,
     services_kb,
+    skip_kb,
 )
 from ..notify import send_assignment
 from ..utils import (
@@ -56,10 +57,12 @@ class NewOrder(StatesGroup):
     ev_date = State()
     ev_time = State()
     ev_address = State()
+    ev_location = State()
     ev_ops = State()
     op_new_name = State()
     op_new_phone = State()
     ev_pay = State()
+    ev_decor = State()
     ev_next = State()
     deposit = State()
     note = State()
@@ -241,7 +244,28 @@ async def ev_address(message: Message, state: FSMContext, db: Database):
     data = await state.get_data()
     cur = {**data["cur"], "address": address, "op_ids": []}
     await state.update_data(cur=cur)
+    await state.set_state(NewOrder.ev_location)
+    await message.answer(
+        "🗺 To'yxona lokatsiyasini yuboring: 📎 → «Lokatsiya» (xaritadan joyni tanlang).\n"
+        "Xodimlar adashmasligi uchun kerak.",
+        reply_markup=skip_kb("➖ Lokatsiyasiz", "loc_skip"),
+    )
+
+
+@router.message(NewOrder.ev_location, F.location)
+async def ev_location(message: Message, state: FSMContext, db: Database):
+    data = await state.get_data()
+    cur = {**data["cur"], "lat": message.location.latitude, "lon": message.location.longitude}
+    await state.update_data(cur=cur)
+    await message.answer("🗺 Lokatsiya saqlandi.")
     await show_operators(message, state, db)
+
+
+@router.callback_query(NewOrder.ev_location, OrdCb.filter(F.action == "loc_skip"))
+async def ev_location_skip(call: CallbackQuery, state: FSMContext, db: Database):
+    await call.message.edit_reply_markup(reply_markup=None)
+    await call.answer()
+    await show_operators(call.message, state, db)
 
 
 async def show_operators(message: Message, state: FSMContext, db: Database):
@@ -338,7 +362,7 @@ async def ev_ops_done(call: CallbackQuery, state: FSMContext, db: Database):
     for op_id in cur["op_ids"]:
         s = await db.staff_get(op_id)
         if s:
-            ops.append({"id": s["id"], "name": s["name"], "pay": None})
+            ops.append({"id": s["id"], "name": s["name"], "role": s["role"], "pay": None})
     cur["ops"] = ops
     await state.update_data(cur=cur)
     names = ", ".join(escape(o["name"]) for o in ops)
@@ -351,7 +375,10 @@ async def ask_next_pay(message: Message, state: FSMContext):
     cur = (await state.get_data())["cur"]
     pending = next((o for o in cur["ops"] if o["pay"] is None), None)
     if pending is None:
-        await finish_event(message, state)
+        if any(o.get("role") == "dekorator" for o in cur["ops"]):
+            await ask_decor(message, state)
+        else:
+            await finish_event(message, state)
         return
     await state.set_state(NewOrder.ev_pay)
     await message.answer(f"<b>{escape(pending['name'])}</b> uchun ish haqi?\n{MONEY_HINT}")
@@ -369,6 +396,40 @@ async def ev_pay(message: Message, state: FSMContext):
     await ask_next_pay(message, state)
 
 
+async def ask_decor(message: Message, state: FSMContext):
+    await state.set_state(NewOrder.ev_decor)
+    await message.answer(
+        "🎀 <b>Qanday dekor qo'yish kerak?</b>\n"
+        "Rasmini yuboring, tushuntirishni rasm ostiga yozing. Yoki faqat matn bilan yozing.\n"
+        "Dekoratorga rasm, mijoz raqami va lokatsiya bilan boradi.",
+        reply_markup=skip_kb("➖ Keyinroq", "decor_skip"),
+    )
+
+
+@router.message(NewOrder.ev_decor, F.photo)
+async def ev_decor_photo(message: Message, state: FSMContext):
+    cur = (await state.get_data())["cur"]
+    cur["decor_photo"] = message.photo[-1].file_id
+    cur["decor_note"] = (message.caption or "").strip()[:500] or None
+    await state.update_data(cur=cur)
+    await finish_event(message, state)
+
+
+@router.message(NewOrder.ev_decor, F.text)
+async def ev_decor_text(message: Message, state: FSMContext):
+    cur = (await state.get_data())["cur"]
+    cur["decor_note"] = message.text.strip()[:500]
+    await state.update_data(cur=cur)
+    await finish_event(message, state)
+
+
+@router.callback_query(NewOrder.ev_decor, OrdCb.filter(F.action == "decor_skip"))
+async def ev_decor_skip(call: CallbackQuery, state: FSMContext):
+    await call.message.edit_reply_markup(reply_markup=None)
+    await call.answer()
+    await finish_event(call.message, state)
+
+
 async def finish_event(message: Message, state: FSMContext):
     data = await state.get_data()
     cur = data["cur"]
@@ -378,6 +439,10 @@ async def finish_event(message: Message, state: FSMContext):
         "date": cur["date"],
         "time": cur["time"],
         "address": cur["address"],
+        "lat": cur.get("lat"),
+        "lon": cur.get("lon"),
+        "decor_photo": cur.get("decor_photo"),
+        "decor_note": cur.get("decor_note"),
         "ops": cur.get("ops", []),
     }
     events = data["events"] + [event]
@@ -388,7 +453,10 @@ async def finish_event(message: Message, state: FSMContext):
     await message.answer(
         f"✅ <b>{len(events)}-tadbir yozildi:</b> {escape(event['type_name'])}\n"
         f"📅 {fmt_date(event['date'])}, ⏰ {event['time']}\n"
-        f"📍 {escape(event['address'])}\n{ops}",
+        f"📍 {escape(event['address'])}{' 🗺' if event['lat'] is not None else ''}\n"
+        + (f"🎀 Dekor: {'🖼 ' if event['decor_photo'] else ''}{escape(event['decor_note'] or '')}\n"
+           if event["decor_photo"] or event["decor_note"] else "")
+        + ops,
         reply_markup=more_events_kb(),
     )
 

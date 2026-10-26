@@ -143,7 +143,8 @@ SERVICE_PRESETS = ["Video", "Foto", "Dekoratsiya", "Taklifnoma", "Albom"]
 
 
 class OrdCb(CallbackData, prefix="ord"):
-    # svc, svc_other, svc_done, et, op, op_done, ev_more, ev_done, dep0, note_skip, save, view, list
+    # svc, svc_other, svc_done, et, op, op_done, loc_skip, decor_skip, ev_more, ev_done, dep0,
+    # note_skip, save, view, list
     action: str
     id: int = 0
 
@@ -201,6 +202,10 @@ def more_events_kb() -> InlineKeyboardMarkup:
 
 def deposit_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[_btn("Zakalat yo'q", "dep0")]])
+
+
+def skip_kb(text: str, action: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[_btn(text, action)]])
 
 
 def note_kb() -> InlineKeyboardMarkup:

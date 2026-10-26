@@ -6,6 +6,8 @@ import aiosqlite
 
 from .config import ADMIN_IDS, DEFAULT_EVENT_TYPES, FIELD_ROLES, ROLES
 
+EVENT_NEW_COLUMNS = {"lat": "REAL", "lon": "REAL", "decor_photo": "TEXT", "decor_note": "TEXT"}
+
 ROLE_CHECK = "CHECK (role IN (" + ", ".join(f"'{r}'" for r in ROLES) + "))"
 
 # Barcha 8 ta jadval birdaniga yaratiladi, keyingi bosqichlarda bazani o'zgartirish shart bo'lmaydi.
@@ -61,7 +63,11 @@ CREATE TABLE IF NOT EXISTS events (
     event_type_id INTEGER NOT NULL REFERENCES event_types(id),
     date          TEXT NOT NULL,  -- YYYY-MM-DD
     time          TEXT,           -- HH:MM
-    address       TEXT
+    address       TEXT,
+    lat           REAL,           -- Telegram lokatsiyasi
+    lon           REAL,
+    decor_photo   TEXT,           -- dekor rasmi (Telegram file_id)
+    decor_note    TEXT            -- qanday dekor qo'yish kerak
 );
 
 -- 6. Biriktirishlar (tadbirga operator)
@@ -129,6 +135,7 @@ class Database:
         self.conn.row_factory = aiosqlite.Row
         await self.conn.executescript(SCHEMA)
         await self._migrate_staff_roles()
+        await self._add_missing_columns("events", EVENT_NEW_COLUMNS)
         await self.conn.execute("PRAGMA foreign_keys = ON")
         async with self.conn.execute("SELECT COUNT(*) FROM event_types") as cur:
             (count,) = await cur.fetchone()
@@ -136,6 +143,14 @@ class Database:
             await self.conn.executemany(
                 "INSERT INTO event_types (name) VALUES (?)", [(n,) for n in DEFAULT_EVENT_TYPES]
             )
+        await self.conn.commit()
+
+    async def _add_missing_columns(self, table: str, columns: dict[str, str]) -> None:
+        """Eski bazaga keyin qo'shilgan ustunlarni qo'shadi (ma'lumotlar saqlanadi)."""
+        have = {r["name"] for r in await self._all(f"PRAGMA table_info({table})")}
+        for name, sql_type in columns.items():
+            if name not in have:
+                await self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
         await self.conn.commit()
 
     async def _migrate_staff_roles(self) -> None:
@@ -291,9 +306,10 @@ class Database:
             )
             for ev in d["events"]:
                 cur = await self.conn.execute(
-                    "INSERT INTO events (order_id, event_type_id, date, time, address) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (order_id, ev["type_id"], ev["date"], ev["time"], ev["address"]),
+                    "INSERT INTO events (order_id, event_type_id, date, time, address, "
+                    "  lat, lon, decor_photo, decor_note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (order_id, ev["type_id"], ev["date"], ev["time"], ev["address"],
+                     ev.get("lat"), ev.get("lon"), ev.get("decor_photo"), ev.get("decor_note")),
                 )
                 event_id = cur.lastrowid
                 for op in ev["ops"]:
@@ -359,8 +375,9 @@ class Database:
 
     async def assignment_info(self, asg_id: int):
         return await self._one(
-            "SELECT a.*, s.name AS staff_name, s.tg_id AS staff_tg_id, "
-            "  e.date, e.time, e.address, e.order_id, t.name AS type_name, "
+            "SELECT a.*, s.name AS staff_name, s.role, s.tg_id AS staff_tg_id, "
+            "  e.date, e.time, e.address, e.order_id, e.lat, e.lon, e.decor_photo, e.decor_note, "
+            "  t.name AS type_name, "
             "  o.client_name, o.client_phone, o.note "
             "FROM assignments a "
             "JOIN staff s ON s.id = a.staff_id "
@@ -377,6 +394,34 @@ class Database:
             "WHERE a.event_id = ? ORDER BY a.id",
             (event_id,),
         )
+
+    # ---------- Eslatmalar ----------
+
+    async def assignments_between(self, first: str, last: str):
+        """Sanasi first..last oralig'idagi tadbirlarning barcha biriktirishlari (rad etilganlar ham)."""
+        return await self._all(
+            "SELECT a.*, s.name AS staff_name, s.role, s.tg_id AS staff_tg_id, "
+            "  e.date, e.time, e.address, e.order_id, e.lat, e.lon, e.decor_photo, e.decor_note, "
+            "  t.name AS type_name, "
+            "  o.client_name, o.client_phone, o.note "
+            "FROM assignments a "
+            "JOIN staff s ON s.id = a.staff_id "
+            "JOIN events e ON e.id = a.event_id "
+            "JOIN event_types t ON t.id = e.event_type_id "
+            "JOIN orders o ON o.id = e.order_id "
+            "WHERE e.date BETWEEN ? AND ? AND s.active = 1 "
+            "ORDER BY e.date, e.time, a.id",
+            (first, last),
+        )
+
+    async def reminder_claim(self, kind: str, ref_id: int, day: str) -> bool:
+        """Eslatmani "yuborildi" deb belgilaydi. Avval belgilangan bo'lsa — False."""
+        cur = await self.conn.execute(
+            "INSERT OR IGNORE INTO reminders (kind, ref_id, sent_on) VALUES (?, ?, ?)",
+            (kind, ref_id, day),
+        )
+        await self.conn.commit()
+        return cur.rowcount == 1
 
     async def assignment_respond(self, asg_id: int, status: str) -> None:
         await self.conn.execute(

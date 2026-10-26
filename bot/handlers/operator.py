@@ -22,9 +22,11 @@ async def respond(call: CallbackQuery, callback_data: AsgCb, db: Database, bot: 
     status = "qabul" if callback_data.action == "yes" else "rad"
     await db.assignment_respond(a["id"], status)
     a = await db.assignment_info(a["id"])
-    await call.message.edit_text(
-        assignment_text(a, await db.event_team(a["event_id"])), reply_markup=None
-    )
+    text = assignment_text(a, await db.event_team(a["event_id"]))
+    if call.message.photo:
+        await call.message.edit_caption(caption=text, reply_markup=None)
+    else:
+        await call.message.edit_text(text, reply_markup=None)
     await call.answer("Javobingiz yuborildi")
 
     when = f"{a['date'][8:10]}.{a['date'][5:7]} {a['time']}"

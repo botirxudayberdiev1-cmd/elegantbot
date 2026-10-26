@@ -21,7 +21,7 @@ Kutubxonalarni qaytadan o'rnatish kerak bo'lsa: `.venv\Scripts\python -m pip ins
 - [x] 2. Buyurtma yozish, operatorga xabar, «Qabul qildim / Bora olmayman»
 - [ ] 3. Operator tugmalari
 - [ ] 4. To'lov va qarz
-- [ ] 5. Eslatmalar
+- [ ] 5. Eslatmalar — xodimlarga tadbirdan oldin va adminga ertangi ro'yxat ✅; fleshka ⏳
 - [ ] 6. Montaj va mijozga xabarlar
 - [ ] 7. Hisobot
 - [ ] 8. Serverga qo'yish
@@ -38,6 +38,7 @@ bot/
   utils.py           — telefon, pul, sana, havola, adminga xabar
   cards.py           — buyurtma va tadbir kartalari matni
   notify.py          — operatorga karta yuborish
+  reminders.py       — eslatmalar (vaqtlari config.py da)
   handlers/
     start.py         — /start va havola orqali ulanish
     admin.py         — menyu, bekor qilish

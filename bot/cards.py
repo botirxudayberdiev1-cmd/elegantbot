@@ -32,7 +32,10 @@ def order_text(d: dict, title: str) -> str:
     for i, ev in enumerate(d["events"], 1):
         lines.append(f"\n<b>{i}. {escape(ev['type_name'])}</b>")
         lines.append(f"📅 {fmt_date(ev['date'])}, ⏰ {ev['time']}")
-        lines.append(f"📍 {escape(ev['address'])}")
+        lines.append(f"📍 {escape(ev['address'])}" + (" (🗺 lokatsiya bor)" if ev.get("lat") else ""))
+        if ev.get("decor_photo") or ev.get("decor_note"):
+            photo = "🖼 rasm bor" if ev.get("decor_photo") else ""
+            lines.append("🎀 Dekor: " + " · ".join(x for x in (photo, escape(ev.get("decor_note") or "")) if x))
         for op in ev["ops"]:
             icon = STATUS_ICONS.get(op.get("status"), "▫️")
             lines.append(f"   {icon} {escape(op['name'])} — {fmt_money(op['pay'])}")
@@ -60,6 +63,8 @@ def assignment_text(a, team) -> str:
     ]
     if others:
         lines.append(f"👥 Birga: {escape(', '.join(others))}")
+    if a["role"] == "dekorator" and a["decor_note"]:
+        lines.append(f"🎀 Qanday dekor: {escape(a['decor_note'])}")
     lines.append(f"💵 Ish haqingiz: <b>{fmt_money(a['pay'])}</b>")
     if a["note"]:
         lines.append(f"📝 {escape(a['note'])}")

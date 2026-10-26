@@ -10,6 +10,7 @@ from .config import ADMIN_IDS, BOT_TOKEN, DB_PATH
 from .db import Database
 from .handlers import admin, event_types, operator, orders, staff, start
 from .middlewares import LogMiddleware, MenuResetMiddleware
+from .reminders import reminder_loop
 from .storage import SQLiteStorage
 
 
@@ -40,11 +41,13 @@ async def main() -> None:
     await db.connect()
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = build_dispatcher(db)
+    reminders = asyncio.create_task(reminder_loop(bot, db))
     try:
         me = await bot.me()
         logging.info("Bot ishga tushdi: @%s", me.username)
         await dp.start_polling(bot)
     finally:
+        reminders.cancel()
         await db.close()
         await bot.session.close()
 
