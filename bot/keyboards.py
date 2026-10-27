@@ -144,7 +144,7 @@ SERVICE_PRESETS = ["Video", "Foto", "Dekoratsiya", "Taklifnoma", "Albom"]
 
 class OrdCb(CallbackData, prefix="ord"):
     # svc, svc_other, svc_done, et, op, op_done, loc_skip, decor_skip, ev_more, ev_done, dep0,
-    # note_skip, save, view, list
+    # note_skip, save, view, list, qstep, qloc_skip (bitta xabarli buyurtma)
     action: str
     id: int = 0
 

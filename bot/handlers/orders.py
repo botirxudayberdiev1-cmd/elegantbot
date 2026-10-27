@@ -77,6 +77,7 @@ class NewOrder(StatesGroup):
 
 # ---------- 1. Mijoz ----------
 
+# Menyu tugmasi quick_order.py ga o'tdi; bu yerga «📝 Qadamma-qadam yozish» orqali keladi
 @router.message(StateFilter(None), F.text == BTN_NEW_ORDER)
 async def new_order(message: Message, state: FSMContext):
     await state.clear()

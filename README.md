@@ -44,7 +44,8 @@ bot/
     admin.py         — menyu, bekor qilish
     staff.py         — Xodimlar bo'limi
     event_types.py   — Tadbir turlari bo'limi
-    orders.py        — Yangi buyurtma va Buyurtmalar ro'yxati
+    quick_order.py   — Yangi buyurtma bitta xabarda (shablon, form.py)
+    orders.py        — Yangi buyurtma qadamma-qadam va Buyurtmalar ro'yxati
     operator.py      — operator tugmalari
 data/bot.db          — baza (o'zi yaratiladi)
 ```

@@ -8,7 +8,7 @@ from aiogram.enums import ParseMode
 
 from .config import ADMIN_IDS, BOT_TOKEN, DB_PATH
 from .db import Database
-from .handlers import admin, event_types, operator, orders, staff, start
+from .handlers import admin, event_types, operator, orders, quick_order, staff, start
 from .middlewares import LogMiddleware, MenuResetMiddleware
 from .reminders import reminder_loop
 from .storage import SQLiteStorage
@@ -22,7 +22,7 @@ def build_dispatcher(db: Database) -> Dispatcher:
     # Tartib muhim: avval /start, keyin admin (bekor qilish), keyin bo'limlar, oxirida "tushunmadim"
     dp.include_routers(
         start.router, operator.router, admin.router,
-        staff.router, event_types.router, orders.router,
+        staff.router, event_types.router, quick_order.router, orders.router,
         admin.fallback_router,
     )
     return dp
