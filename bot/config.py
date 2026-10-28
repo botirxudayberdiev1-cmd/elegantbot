@@ -28,8 +28,8 @@ ROLES = {
 FIELD_ROLES = ("operator", "fotograf", "dekorator")
 
 # Eslatmalar (vaqtlar — TIMEZONE bo'yicha)
-EVENING_AT = "15:00"        # ish kunidan bir kun oldin xodimga eslatma
-HOURS_BEFORE = 2            # operator/fotografga tadbirdan necha soat oldin eslatma
+EVENING_AT = "17:00"        # ish kunidan bir kun oldin xodimga eslatma
+HOURS_BEFORE = 1            # operator/fotografga tadbirdan necha soat oldin eslatma
 DEKOR_MORNING_AT = "12:00"  # dekoratorga ish kuni (tadbirdan bir kun oldin): rasm va lokatsiya bilan
 DEKOR_UNTIL = "20:00"       # shu vaqtdan keyin "bugun dekor" eslatmasi yuborilmaydi
 ADMIN_SUMMARY_AT = "11:00"  # adminga ertangi ishlar ro'yxati
