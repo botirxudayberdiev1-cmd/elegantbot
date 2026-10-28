@@ -11,6 +11,10 @@ ADMIN_IDS = {
 DB_PATH = os.getenv("DB_PATH", "data/bot.db")
 TIMEZONE = os.getenv("TIMEZONE", "Asia/Tashkent")
 
+# Sayt (zakaz va qarzdorlar): Railway PORT beradi; kompyuterda WEB_PORT=8080 qilib sinash mumkin
+WEB_PORT = int(os.getenv("PORT") or os.getenv("WEB_PORT") or 0)
+SITE_PIN = os.getenv("SITE_PIN", "").strip()
+
 ROLES = {
     "admin": "Admin",
     "operator": "Operator",

@@ -131,6 +131,8 @@ class Database:
         folder = os.path.dirname(self.path)
         if folder:
             os.makedirs(folder, exist_ok=True)
+        if os.path.exists(self.path + ".restore"):  # /restore orqali yuborilgan baza
+            os.replace(self.path + ".restore", self.path)
         self.conn = await aiosqlite.connect(self.path)
         self.conn.row_factory = aiosqlite.Row
         await self.conn.executescript(SCHEMA)
@@ -394,6 +396,41 @@ class Database:
             "WHERE a.event_id = ? ORDER BY a.id",
             (event_id,),
         )
+
+    # ---------- Sayt ----------
+
+    async def orders_overview(self) -> list[dict]:
+        """Sayt uchun: har buyurtma — jami, to'langan, xizmatlar, tadbirlar (jamoasi bilan), to'lovlar."""
+        orders = await self._all(
+            "SELECT o.id, o.client_name, o.client_phone, o.note, o.created_at, "
+            "  (SELECT COALESCE(SUM(price), 0) FROM services WHERE order_id = o.id) AS total, "
+            "  (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = o.id) AS paid, "
+            "  (SELECT GROUP_CONCAT(name, ', ') FROM services WHERE order_id = o.id) AS services "
+            "FROM orders o ORDER BY o.id DESC"
+        )
+        events = await self._all(
+            "SELECT e.order_id, e.date, e.time, e.address, t.name AS type_name, "
+            "  (SELECT GROUP_CONCAT(s.name, ', ') FROM assignments a JOIN staff s ON s.id = a.staff_id "
+            "   WHERE a.event_id = e.id AND a.status != 'rad') AS team "
+            "FROM events e JOIN event_types t ON t.id = e.event_type_id ORDER BY e.date, e.time"
+        )
+        payments = await self._all(
+            "SELECT order_id, amount, paid_at, note FROM payments ORDER BY id"
+        )
+        by_id = {o["id"]: {**dict(o), "events": [], "payments": []} for o in orders}
+        for e in events:
+            if e["order_id"] in by_id:
+                by_id[e["order_id"]]["events"].append(dict(e))
+        for p in payments:
+            if p["order_id"] in by_id:
+                by_id[p["order_id"]]["payments"].append(dict(p))
+        return list(by_id.values())
+
+    async def payment_add(self, order_id: int, amount: int, note: str) -> None:
+        await self.conn.execute(
+            "INSERT INTO payments (order_id, amount, note) VALUES (?, ?, ?)", (order_id, amount, note)
+        )
+        await self.conn.commit()
 
     # ---------- Eslatmalar ----------
 
