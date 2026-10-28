@@ -402,11 +402,13 @@ class Database:
     async def orders_overview(self) -> list[dict]:
         """Sayt uchun: har buyurtma — jami, to'langan, xizmatlar, tadbirlar (jamoasi bilan), to'lovlar."""
         orders = await self._all(
-            "SELECT o.id, o.client_name, o.client_phone, o.note, o.created_at, "
+            "SELECT o.id, o.client_name, o.client_phone, o.note, o.created_at, o.client_tg_id, "
+            "  o.client_token, o.editor_id, o.editing_taken_at, o.editing_done_at, "
+            "  o.ready_notified_at, o.delivered_at, ed.name AS editor_name, "
             "  (SELECT COALESCE(SUM(price), 0) FROM services WHERE order_id = o.id) AS total, "
             "  (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = o.id) AS paid, "
             "  (SELECT GROUP_CONCAT(name, ', ') FROM services WHERE order_id = o.id) AS services "
-            "FROM orders o ORDER BY o.id DESC"
+            "FROM orders o LEFT JOIN staff ed ON ed.id = o.editor_id ORDER BY o.id DESC"
         )
         events = await self._all(
             "SELECT e.order_id, e.date, e.time, e.address, t.name AS type_name, "
@@ -425,6 +427,47 @@ class Database:
             if p["order_id"] in by_id:
                 by_id[p["order_id"]]["payments"].append(dict(p))
         return list(by_id.values())
+
+    # ---------- Montaj va mijoz ----------
+
+    ORDER_STAMPS = {"editing_taken_at", "editing_done_at", "ready_notified_at", "delivered_at"}
+
+    async def order_brief(self, order_id: int):
+        """Buyurtma + birinchi tadbir + qarz: montajchi va mijoz xabarlari uchun."""
+        return await self._one(
+            "SELECT o.*, ed.name AS editor_name, ed.tg_id AS editor_tg_id, "
+            "  (SELECT MIN(date) FROM events WHERE order_id = o.id) AS first_date, "
+            "  (SELECT GROUP_CONCAT(t.name, ', ') FROM events e JOIN event_types t "
+            "   ON t.id = e.event_type_id WHERE e.order_id = o.id) AS types, "
+            "  (SELECT GROUP_CONCAT(name, ', ') FROM services WHERE order_id = o.id) AS services, "
+            "  (SELECT COALESCE(SUM(price), 0) FROM services WHERE order_id = o.id) - "
+            "  (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE order_id = o.id) AS debt "
+            "FROM orders o LEFT JOIN staff ed ON ed.id = o.editor_id WHERE o.id = ?",
+            (order_id,),
+        )
+
+    async def order_set_editor(self, order_id: int, staff_id: int) -> None:
+        await self.conn.execute(
+            "UPDATE orders SET editor_id = ?, editing_taken_at = datetime('now', 'localtime'), "
+            "editing_done_at = NULL, ready_notified_at = NULL WHERE id = ?",
+            (staff_id, order_id),
+        )
+        await self.conn.commit()
+
+    async def order_stamp(self, order_id: int, field: str) -> None:
+        """Bosqich vaqtini yozadi: montaj tugadi, mijozga xabar berildi, topshirildi."""
+        assert field in self.ORDER_STAMPS
+        await self.conn.execute(
+            f"UPDATE orders SET {field} = datetime('now', 'localtime') WHERE id = ?", (order_id,)
+        )
+        await self.conn.commit()
+
+    async def order_by_client_token(self, token: str):
+        return await self._one("SELECT * FROM orders WHERE client_token = ?", (token,))
+
+    async def order_link_client(self, order_id: int, tg_id: int) -> None:
+        await self.conn.execute("UPDATE orders SET client_tg_id = ? WHERE id = ?", (tg_id, order_id))
+        await self.conn.commit()
 
     async def payment_add(self, order_id: int, amount: int, note: str) -> None:
         await self.conn.execute(

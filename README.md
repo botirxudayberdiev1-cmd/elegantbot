@@ -36,7 +36,7 @@ Bazani ko'chirish: kompyuterdagi botga `/backup` yozing → kelgan faylni Railwa
 - [ ] 3. Operator tugmalari
 - [ ] 4. To'lov va qarz — saytda to'lov kiritish ✅; botda ⏳
 - [ ] 5. Eslatmalar — xodimlarga tadbirdan oldin va adminga ertangi ro'yxat ✅; fleshka ⏳
-- [ ] 6. Montaj va mijozga xabarlar
+- [x] 6. Montaj va mijozga xabarlar (saytdan: montajchiga berish, «tayyor», mijozga xabar, topshirildi)
 - [ ] 7. Hisobot
 - [x] 8. Serverga qo'yish (Railway)
 
@@ -54,7 +54,8 @@ bot/
   notify.py          — xodimga karta yuborish (dekor rasmi, lokatsiya)
   reminders.py       — eslatmalar (vaqtlari config.py da)
   form.py            — bitta xabarli buyurtma shablonini o'qish
-  web.py             — zakaz va qarzdorlar sayti (SITE_PIN bilan)
+  web.py             — sayt: yangi zakaz, montaj, qarzdorlar (SITE_PIN bilan)
+  montaj.py          — montajchiga to'y, mijozga «to'yingiz tayyor»
   handlers/
     start.py         — /start va havola orqali ulanish
     admin.py         — menyu, bekor qilish
@@ -64,6 +65,7 @@ bot/
     quick_order.py   — Yangi buyurtma bitta xabarda (shablon)
     orders.py        — Yangi buyurtma qadamma-qadam va Buyurtmalar ro'yxati
     operator.py      — xodim javobi (Qabul qildim / Bora olmayman)
+    montaj.py        — montajchining «Montaj tayyor» tugmasi, mijozga xabar tugmasi
 data/bot.db          — baza (o'zi yaratiladi)
 railway.json         — Railway: ishga tushirish buyrug'i va tekshiruv
 ```

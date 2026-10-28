@@ -20,9 +20,28 @@ async def start_with_link(
 
     if arg.startswith("s_"):
         await link_staff(message, arg[2:], db, bot)
+    elif arg.startswith("o_"):
+        await link_client(message, arg[2:], db, bot)
     else:
-        # Mijoz havolalari (o_...) 6-bosqichda qo'shiladi
         await message.answer("Havola noto'g'ri yoki eskirgan.")
+
+
+async def link_client(message: Message, token: str, db: Database, bot: Bot):
+    """Mijoz o'z zakazi havolasini bosdi — tayyor bo'lganda bot unga o'zi xabar beradi."""
+    order = await db.order_by_client_token(token)
+    if not order:
+        await message.answer("Havola noto'g'ri yoki eskirgan.")
+        return
+    await db.order_link_client(order["id"], message.from_user.id)
+    await message.answer(
+        f"Assalomu alaykum, {escape(order['client_name'])}! 🎬\n"
+        f"Elegant Media studiyasi: zakazingiz №{order['id']} qabul qilingan.\n"
+        "Ishingiz tayyor bo'lganda shu yerga xabar beramiz.",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    await notify_admins(
+        bot, db, f"👤 Mijoz <b>{escape(order['client_name'])}</b> (№{order['id']}) botga ulandi."
+    )
 
 
 async def link_staff(message: Message, token: str, db: Database, bot: Bot):
