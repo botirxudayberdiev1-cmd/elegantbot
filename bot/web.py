@@ -15,7 +15,8 @@ from aiogram import Bot
 from aiogram.types import BufferedInputFile
 from aiohttp import web
 
-from .config import ADMIN_IDS, BOT_TOKEN, FIELD_ROLES, ROLES, SITE_PIN, WEB_PORT
+from .cash import BOOKS, CATEGORIES, CURRENCIES, PERIODS, fmt_cur, month_range, parse_quick, period_range
+from .config import ADMIN_IDS, BOT_TOKEN, FIELD_ROLES, ORDER_CATEGORY, ROLES, SITE_PIN, WEB_PORT
 from .db import Database
 from .montaj import client_ready_text, send_to_client, send_to_editor
 from .notify import send_assignment
@@ -112,6 +113,17 @@ legend{font-weight:600;padding:0 6px}
 .chip input:checked+span{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .chip input:checked+span small{color:inherit;opacity:.8}
 .chip input:focus-visible+span{outline:2px solid var(--accent);outline-offset:1px}
+.tabs.two{grid-template-columns:1fr 1fr}
+summary{cursor:pointer}
+.ledger{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:4px 14px}
+.ledger .day{font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:12px 0 2px}
+.line{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
+.line .cat{font-weight:500;overflow-wrap:anywhere}
+.amt{font:1rem "JetBrains Mono",monospace;white-space:nowrap;text-align:right}.amt.in{color:var(--ok)}.amt.out{color:var(--debt)}
+.x{padding:4px 9px;color:var(--muted)}
+.progress.over span{background:var(--debt)}
+.cashform:has(input[name=kind][value=kirim]:checked) .cats-chiqim,
+.cashform:has(input[name=kind][value=chiqim]:checked) .cats-kirim{display:none}
 """
 
 FONTS = ('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700'
@@ -317,6 +329,7 @@ async def index(request: web.Request) -> web.Response:
 <div class="wrap">
   <header><div><div class="eyebrow">Elegant Media</div><h1>Zakaz va qarzlar</h1></div>
     <div class="actions"><a class="btn primary" href="/new">+ Yangi zakaz</a>
+    <a class="btn" href="/cash">💰 Kirim-chiqim</a>
     <form method="post" action="/logout"><button type="submit">Chiqish</button></form></div></header>
   <nav class="tabs">
     <a href="/?tab=orders"{cur if tab == 'orders' else ''}>Zakazlar · {len(upcoming)}</a>
@@ -578,6 +591,260 @@ async def stage(request: web.Request) -> web.Response:
     raise _back("montaj")
 
 
+# ---------- Kirim-chiqim ----------
+
+CASH_FLASH = {
+    "saved": ("", "✅ Yozildi: {info}"),
+    "limit": ("err", "⚠️ Oylik limitdan oshdi — {info}"),
+    "bad": ("err", "Summani tushunmadim. Masalan: -150000 benzin, +2 mln to'y Aliyev, -$50 reklama"),
+    "deleted": ("", "O'chirildi."),
+    "limit_set": ("", "Limit saqlandi."),
+}
+
+
+CASH_EMPTY = {"day": "Bugun", "week": "Bu hafta", "month": "Bu oy"}
+
+
+def _book_period(data) -> tuple[str, str]:
+    book = data.get("book") if data.get("book") in BOOKS else "biznes"
+    period = data.get("p") if data.get("p") in PERIODS else "month"
+    return book, period
+
+
+def _cash_back(book: str, period: str, **flash) -> web.HTTPSeeOther:
+    return web.HTTPSeeOther("/cash?" + urlencode({"book": book, "p": period, **flash}))
+
+
+async def _cash_categories(db: Database, book: str) -> dict[str, list[str]]:
+    """Tayyor kategoriyalar + o'zingiz yozganlari («Boshqa» oxirida qoladi)."""
+    out = {}
+    for kind in ("chiqim", "kirim"):
+        names = list(CATEGORIES[(book, kind)])
+        for c in await db.cash_categories_used(book, kind):
+            if c.lower() not in {n.lower() for n in names}:
+                names.insert(len(names) - 1, c)
+        out[kind] = names
+    return out
+
+
+def _totals(entries: list[dict]) -> dict[str, dict[str, int]]:
+    t: dict[str, dict[str, int]] = {}
+    for e in entries:
+        t.setdefault(e["currency"], {"kirim": 0, "chiqim": 0})[e["kind"]] += e["amount"]
+    return t
+
+
+async def _limits_state(db: Database, book: str) -> list[dict]:
+    first, last = (d.isoformat() for d in month_range(today()))
+    out = []
+    for lim in await db.cash_limits(book):
+        spent = await db.cash_spent(book, lim["category"], lim["currency"], first, last)
+        out.append({**dict(lim), "spent": spent})
+    return out
+
+
+def _cat_chips(kind: str, names: list[str]) -> str:
+    return "".join(
+        f'<label class="chip"><input type="radio" name="cat_{kind}" value="{attr(n)}"'
+        f'{" checked" if i == 0 else ""}><span>{escape(n)}</span></label>'
+        for i, n in enumerate(names)
+    )
+
+
+async def cash_page(request: web.Request) -> web.Response:
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    db: Database = request.app["db"]
+    q = request.query
+    book, period = _book_period(q)
+    first, last = period_range(period, today())
+    entries = await db.cash_entries(book, first.isoformat(), last.isoformat())
+    totals, overall = _totals(entries), _totals(await db.cash_entries(book))
+    cats = await _cash_categories(db, book)
+    limits = await _limits_state(db, book)
+
+    summary = ""
+    for cur in [c for c in CURRENCIES if c == "UZS" or c in overall]:
+        t = totals.get(cur, {"kirim": 0, "chiqim": 0})
+        o = overall.get(cur, {"kirim": 0, "chiqim": 0})
+        summary += (f'<div><div class="eyebrow">{PERIODS[period]} · qoldiq · {CURRENCIES[cur]}</div>'
+                    f'<div class="big">{fmt_cur(t["kirim"] - t["chiqim"], cur)}</div></div>'
+                    f'<div class="side">Kirim: +{fmt_cur(t["kirim"], cur)}<br>Chiqim: −{fmt_cur(t["chiqim"], cur)}'
+                    f'<br>Jami qoldiq: {fmt_cur(o["kirim"] - o["chiqim"], cur)}</div>')
+
+    hidden = f'<input type="hidden" name="book" value="{book}"><input type="hidden" name="p" value="{period}">'
+    lines, day = [], None
+    for e in entries:
+        if e["day"] != day:
+            day = e["day"]
+            lines.append(f'<div class="day">{fmt_date(day)}</div>')
+        sign, cls = ("+", "in") if e["kind"] == "kirim" else ("−", "out")
+        delete = (f'<form method="post" action="/cash/del" onsubmit="return confirm(&quot;O&#39;chirilsinmi?&quot;)">'
+                  f'<input type="hidden" name="id" value="{e["id"]}">{hidden}'
+                  f'<button class="x" type="submit" aria-label="O&#39;chirish">×</button></form>'
+                  if e["src"] == "cash" else '<span class="x" title="Zakaz to&#39;lovi">🔗</span>')
+        note = f'<div class="meta">{escape(e["note"])}</div>' if e["note"] else ""
+        lines.append(f'<div class="line"><div><div class="cat">{escape(e["category"])}</div>{note}</div>'
+                     f'<div class="amt {cls}">{sign}{fmt_cur(e["amount"], e["currency"])}</div>{delete}</div>')
+    ledger = (f'<section class="ledger">{"".join(lines)}</section>' if lines else
+              f'<div class="empty">{CASH_EMPTY[period]} hali hech narsa yozilmagan.</div>')
+
+    m = q.get("m", "")
+    msg_html = ""
+    if m in CASH_FLASH:
+        cls, text = CASH_FLASH[m]
+        msg_html = f'<div class="msg {cls}">{escape(text.format(info=q.get("info", "")))}</div>'
+    over = [x for x in limits if x["spent"] > x["amount"]]
+    if over and m != "limit":
+        msg_html += ('<div class="msg err">⚠️ Bu oy limitdan oshgan: ' + ", ".join(
+            f'{escape(x["category"])} ({fmt_cur(x["spent"], x["currency"])} / {fmt_cur(x["amount"], x["currency"])})'
+            for x in over) + '</div>')
+
+    limit_rows = "".join(
+        f'<div class="ev"><div class="top"><span><b>{escape(x["category"])}</b></span>'
+        f'<span class="num">{fmt_cur(x["spent"], x["currency"])} / {fmt_cur(x["amount"], x["currency"])}</span></div>'
+        f'<div class="progress{" over" if x["spent"] > x["amount"] else ""}"><span style="width:'
+        f'{min(100, round(x["spent"] * 100 / x["amount"]))}%"></span></div></div>'
+        for x in limits
+    ) or '<div class="meta">Hali limit qo\'yilmagan.</div>'
+    cat_options = "".join(f'<option value="{attr(n)}">' for n in cats["chiqim"])
+    cur_options = "".join(f'<option value="{c}">{label}</option>' for c, label in CURRENCIES.items())
+    cur = ' aria-current="page"'
+    book_tabs = "".join(f'<a href="/cash?book={b}&p={period}"{cur if b == book else ""}>{label}</a>'
+                        for b, label in BOOKS.items())
+    period_tabs = "".join(f'<a href="/cash?book={book}&p={p}"{cur if p == period else ""}>{label}</a>'
+                          for p, label in PERIODS.items())
+    span = fmt_date(first.isoformat()) if period == "day" else f"{first:%d.%m} – {last:%d.%m.%Y}"
+    biz_note = "Zakaz to&#39;lovlari kirimga o&#39;zi tushadi." if book == "biznes" else ""
+    return page("Kirim-chiqim", f"""
+<div class="wrap">
+  <header><div><div class="eyebrow">Elegant Media</div><h1>Kirim-chiqim</h1></div>
+    <a class="btn" href="/">← Zakazlar</a></header>
+  <nav class="tabs two">{book_tabs}</nav>
+  <nav class="tabs">{period_tabs}</nav>
+  <section class="total">{summary}</section>
+  {msg_html}
+  <form class="inline" method="post" action="/cash/quick">{hidden}
+    <input name="text" required autocomplete="off" aria-label="Tezkor yozish"
+      placeholder="-150000 benzin  ·  +2 mln to'y Aliyev">
+    <button class="primary" type="submit">Yozish</button></form>
+  <div class="meta">Boshida <b>−</b> chiqim, <b>+</b> kirim. Dollar: <b>-$50 reklama</b>.
+    {biz_note}</div>
+  <details class="row"><summary><b>➕ ➖ Tugmalar bilan yozish</b></summary>
+  <form class="card cashform" method="post" action="/cash/add">{hidden}
+    <div class="chips">
+      <label class="chip"><input type="radio" name="kind" value="chiqim" checked><span>➖ Chiqim</span></label>
+      <label class="chip"><input type="radio" name="kind" value="kirim"><span>➕ Kirim</span></label></div>
+    <div class="grid2">
+      <label>Summa<input name="amount" inputmode="numeric" required placeholder="150 000"></label>
+      <label>Valyuta<select name="currency">{cur_options}</select></label></div>
+    <div class="cats-chiqim"><div class="meta" style="margin-bottom:6px">Kategoriya</div>
+      <div class="chips">{_cat_chips("chiqim", cats["chiqim"])}</div></div>
+    <div class="cats-kirim"><div class="meta" style="margin-bottom:6px">Kategoriya</div>
+      <div class="chips">{_cat_chips("kirim", cats["kirim"])}</div></div>
+    <label>Yoki o'zingiz yozing (yangi kategoriya)<input name="cat_custom" maxlength="40"
+      placeholder="Masalan: Gaz, Svet, Internet"></label>
+    <div class="grid2">
+      <label>Sana<input type="date" name="day" value="{today().isoformat()}" required></label>
+      <label>Izoh<input name="note" maxlength="200" placeholder="Nexia, 20 litr"></label></div>
+    <button class="primary" type="submit">Saqlash</button>
+  </form></details>
+  <details class="row"{" open" if over else ""}><summary><b>🎯 Oylik limitlar</b>
+    <span class="meta">— chiqim limitdan oshsa ogohlantiradi</span></summary>
+    {limit_rows}
+    <form class="card" method="post" action="/cash/limit">{hidden}
+      <div class="grid2">
+        <label>Kategoriya<input name="category" list="cash-cats" required maxlength="40" placeholder="Reklama"></label>
+        <label>Oyiga ko'pi bilan<input name="amount" required placeholder="2 mln (0 — o'chirish)"></label></div>
+      <div class="inline"><select name="currency" aria-label="Valyuta">{cur_options}</select>
+        <button type="submit">Limitni saqlash</button></div>
+    </form></details>
+  <datalist id="cash-cats">{cat_options}</datalist>
+  <h2>{PERIODS[period]}: {span}</h2>
+  {ledger}
+</div>""")
+
+
+async def _cash_save(request: web.Request, book: str, period: str, e: dict) -> None:
+    db: Database = request.app["db"]
+    await db.cash_add(book, e["kind"], e["amount"], e["currency"], e["category"], e["note"] or None, e["day"])
+    info = (f'{"+" if e["kind"] == "kirim" else "−"}{fmt_cur(e["amount"], e["currency"])} · {e["category"]}'
+            + (f' · {e["note"]}' if e["note"] else ""))
+    lim = await db.cash_limit_get(book, e["category"], e["currency"])
+    if e["kind"] == "chiqim" and lim:
+        first, last = (d.isoformat() for d in month_range(date.fromisoformat(e["day"])))
+        spent = await db.cash_spent(book, e["category"], e["currency"], first, last)
+        if spent > lim["amount"]:
+            text = (f'{e["category"]}: bu oy {fmt_cur(spent, e["currency"])}, '
+                    f'limit {fmt_cur(lim["amount"], e["currency"])}')
+            if spent - e["amount"] <= lim["amount"]:  # aynan shu yozuv limitdan oshirdi
+                await notify_admins(request.app["bot"], db,
+                                    f"⚠️ Oylik limit oshdi ({BOOKS[book]}): <b>{escape(text)}</b>")
+            raise _cash_back(book, period, m="limit", info=f"{info}. {text}")
+    raise _cash_back(book, period, m="saved", info=info)
+
+
+async def cash_quick(request: web.Request) -> web.Response:
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    form = await request.post()
+    book, period = _book_period(form)
+    e = parse_quick(str(form.get("text", ""))[:300], await _cash_categories(request.app["db"], book))
+    if not e:
+        raise _cash_back(book, period, m="bad")
+    e["category"], e["note"], e["day"] = e["category"][:40], e["note"][:200], today().isoformat()
+    await _cash_save(request, book, period, e)
+
+
+async def cash_add(request: web.Request) -> web.Response:
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    form = await request.post()
+    get = lambda k: str(form.get(k, "")).strip()  # noqa: E731
+    book, period = _book_period(form)
+    kind = "kirim" if get("kind") == "kirim" else "chiqim"
+    amount = parse_money(get("amount"))
+    try:
+        day = date.fromisoformat(get("day")).isoformat()
+    except ValueError:
+        day = None
+    if not amount or not day:
+        raise _cash_back(book, period, m="bad")
+    category = (get("cat_custom") or get(f"cat_{kind}") or ("Boshqa kirim" if kind == "kirim" else "Boshqa"))[:40]
+    await _cash_save(request, book, period, {
+        "kind": kind, "amount": amount, "currency": "USD" if get("currency") == "USD" else "UZS",
+        "category": category, "note": get("note")[:200], "day": day,
+    })
+
+
+async def cash_del(request: web.Request) -> web.Response:
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    form = await request.post()
+    book, period = _book_period(form)
+    try:
+        await request.app["db"].cash_delete(int(form.get("id", "")))
+    except ValueError:
+        raise _cash_back(book, period)
+    raise _cash_back(book, period, m="deleted")
+
+
+async def cash_limit(request: web.Request) -> web.Response:
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    form = await request.post()
+    book, period = _book_period(form)
+    category = str(form.get("category", "")).strip()[:40]
+    amount = parse_money(str(form.get("amount", "")))
+    if not category or amount is None or category == ORDER_CATEGORY:
+        raise _cash_back(book, period, m="bad")
+    currency = "USD" if form.get("currency") == "USD" else "UZS"
+    known = (await _cash_categories(request.app["db"], book))["chiqim"]
+    category = next((n for n in known if n.lower() == category.lower()), category)  # «reklama» -> «Reklama»
+    await request.app["db"].cash_limit_set(book, category, currency, amount)
+    raise _cash_back(book, period, m="limit_set")
+
+
 # ---------- Kirish ----------
 
 async def login(request: web.Request) -> web.Response:
@@ -612,6 +879,8 @@ def build_app(bot: Bot, db: Database, bot_username: str) -> web.Application:
         web.get("/", index), web.get("/new", new_form), web.post("/new", new_save),
         web.post("/login", login), web.post("/logout", logout), web.post("/pay", pay),
         web.post("/editor", set_editor), web.post("/stage", stage), web.get("/health", health),
+        web.get("/cash", cash_page), web.post("/cash/quick", cash_quick), web.post("/cash/add", cash_add),
+        web.post("/cash/del", cash_del), web.post("/cash/limit", cash_limit),
     ])
     return app
 

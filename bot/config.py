@@ -37,3 +37,6 @@ QUIET_FROM = "22:00"        # kechikkan kechki eslatmalar shundan keyin yuborilm
 CHECK_EVERY = 60            # necha soniyada bir tekshiriladi
 
 DEFAULT_EVENT_TYPES = ["Osh", "Nikoh", "Bazm", "Kelin salom"]
+
+# Kirim-chiqimda zakaz to'lovlari shu kategoriya bilan Studiya kirimiga o'zi tushadi
+ORDER_CATEGORY = "Zakaz to'lovi"
