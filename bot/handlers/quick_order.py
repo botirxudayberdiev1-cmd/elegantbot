@@ -39,8 +39,11 @@ async def start(message: Message, state: FSMContext):
     await message.answer(f"<pre>{TEMPLATE}</pre>")
     await message.answer(
         f"<b>Namuna:</b>\n<pre>{escape(EXAMPLE)}</pre>\n"
-        "• Bir nechta xizmat yoki xodimni vergul bilan yozing.\n"
-        "• Ikkinchi tadbir bo'lsa, «Tadbir:» dan boshlab yana yozing (Sana, Soat, Manzil, Xodimlar).\n"
+        "• Xizmatlar va xodimlarni probel bilan yozsangiz bo'ladi: VIDEO FOTO DECOR, ORIF USMON.\n"
+        "• Umumiy narx — «Dogovor:». Xizmatga alohida narx kerak bo'lsa: Video 5 mln, Foto 2 mln.\n"
+        "• Ish haqi kerak bo'lsa: Orif 300 ming, Usmon 200 ming (vergul bilan).\n"
+        "• «NIKOH BAZM» kabi qo'shma tadbir ham bo'ladi. Boshqa kun yoki soatdagi tadbir bo'lsa, "
+        "«Tadbir:» dan boshlab yana yozing.\n"
         "• Dekor rasmi bo'lsa — rasmni yuboring, to'ldirilgan shablonni rasm ostiga yozing.\n"
         "• Avans, Dekor, Izoh bo'sh qolsa ham bo'ladi.",
         reply_markup=skip_kb("📝 Qadamma-qadam yozish", "qstep"),
@@ -52,6 +55,19 @@ async def step_by_step(call: CallbackQuery, state: FSMContext):
     await call.message.edit_reply_markup(reply_markup=None)
     await call.answer()
     await orders.new_order(call.message, state)
+
+
+def looks_like_form(message: Message) -> bool:
+    text = (message.text or message.caption or "").lower()
+    return "\n" in text and "telefon" in text
+
+
+# Eski qadamma-qadam jarayon o'rtasida to'ldirilgan shablon yuborilsa ham qabul qilinadi
+@router.message(StateFilter(orders.NewOrder.client_name), looks_like_form)
+async def form_from_old_flow(message: Message, state: FSMContext, db: Database):
+    await state.clear()
+    await state.set_state(QuickOrder.form)
+    await form(message, state, db)
 
 
 @router.message(QuickOrder.form, F.text | F.caption)
@@ -68,8 +84,13 @@ async def form(message: Message, state: FSMContext, db: Database):
         )
         return
 
-    warnings = []
+    warnings = data.pop("warnings")
     for ev in data["events"]:
+        if ev.pop("new_type"):
+            # "Nikoh Bazm" kabi qo'shma tur — turlar ro'yxatiga qo'shiladi (bor bo'lsa, o'shani oladi)
+            await db.event_type_add(ev["type_name"])
+            t = next(t for t in await db.event_types_list() if t["name"].lower() == ev["type_name"].lower())
+            ev["type_id"], ev["type_name"] = t["id"], t["name"]
         busy = await db.staff_busy_on(ev["date"])
         for op in ev["ops"]:
             if op["id"] in busy:
