@@ -13,6 +13,15 @@ Kutubxonalarni qaytadan o'rnatish kerak bo'lsa: `.venv\Scripts\python -m pip ins
 
 Saytni kompyuterda ko'rish: `.env` ga `SITE_PIN=...` va `WEB_PORT=8080` yozing, keyin http://localhost:8080
 
+## Kirim-chiqim (saytda)
+
+Saytda «💰 Kirim-chiqim» tugmasi: **Studiya** va **Shaxsiy** hisob alohida, so'm va $ alohida.
+- Tezkor qator: `-150000 benzin`, `+2 mln to'y Aliyev`, `-$50 reklama`, `-300 ming kommunal gaz` (kirillda ham bo'ladi).
+- Yoki «Tugmalar bilan yozish»: chiqim/kirim, kategoriya (tayyor ro'yxat yoki o'zingiz yozasiz), sana, izoh.
+- Zakaz to'lovlari Studiya kirimiga o'zi tushadi.
+- Bugun / hafta / oy: kirim, chiqim, qoldiq.
+- Oylik limit: kategoriya limitdan oshsa saytda va botda ogohlantiradi.
+
 ## Railway'ga qo'yish (24/7)
 
 1. railway.com → GitHub bilan kirish → **New Project → Deploy from GitHub repo → elegantbot**.

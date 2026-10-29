@@ -4,13 +4,13 @@ import secrets
 
 import aiosqlite
 
-from .config import ADMIN_IDS, DEFAULT_EVENT_TYPES, FIELD_ROLES, ROLES
+from .config import ADMIN_IDS, DEFAULT_EVENT_TYPES, FIELD_ROLES, ORDER_CATEGORY, ROLES
 
 EVENT_NEW_COLUMNS = {"lat": "REAL", "lon": "REAL", "decor_photo": "TEXT", "decor_note": "TEXT"}
 
 ROLE_CHECK = "CHECK (role IN (" + ", ".join(f"'{r}'" for r in ROLES) + "))"
 
-# Barcha 8 ta jadval birdaniga yaratiladi, keyingi bosqichlarda bazani o'zgartirish shart bo'lmaydi.
+# Jadvallar IF NOT EXISTS bilan yaratiladi: eski bazaga yangilari o'zi qo'shiladi, ma'lumotlar saqlanadi.
 SCHEMA = """
 -- 1. Xodimlar
 CREATE TABLE IF NOT EXISTS staff (
@@ -112,6 +112,30 @@ CREATE TABLE IF NOT EXISTS fsm (
     data  TEXT
 );
 
+-- 9. Kirim-chiqim (qo'lda yoziladi; zakaz to'lovlari payments'dan o'zi qo'shiladi)
+CREATE TABLE IF NOT EXISTS cash (
+    id         INTEGER PRIMARY KEY,
+    book       TEXT NOT NULL CHECK (book IN ('biznes', 'shaxsiy')),
+    kind       TEXT NOT NULL CHECK (kind IN ('kirim', 'chiqim')),
+    amount     INTEGER NOT NULL CHECK (amount > 0),
+    currency   TEXT NOT NULL DEFAULT 'UZS' CHECK (currency IN ('UZS', 'USD')),
+    category   TEXT NOT NULL,
+    note       TEXT,
+    day        TEXT NOT NULL,  -- YYYY-MM-DD
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+-- 10. Oylik limitlar (chiqim kategoriyasi bo'yicha)
+CREATE TABLE IF NOT EXISTS cash_limits (
+    id       INTEGER PRIMARY KEY,
+    book     TEXT NOT NULL,
+    category TEXT NOT NULL COLLATE NOCASE,
+    currency TEXT NOT NULL,
+    amount   INTEGER NOT NULL,
+    UNIQUE (book, category, currency)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cash_day ON cash(book, day);
 CREATE INDEX IF NOT EXISTS idx_events_date ON events(date);
 CREATE INDEX IF NOT EXISTS idx_assignments_staff ON assignments(staff_id);
 CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id);
@@ -498,6 +522,80 @@ class Database:
         await self.conn.execute(
             "INSERT INTO payments (order_id, amount, note) VALUES (?, ?, ?)", (order_id, amount, note)
         )
+        await self.conn.commit()
+
+    # ---------- Kirim-chiqim ----------
+
+    async def cash_add(self, book: str, kind: str, amount: int, currency: str, category: str,
+                       note: str | None, day: str) -> int:
+        cur = await self.conn.execute(
+            "INSERT INTO cash (book, kind, amount, currency, category, note, day) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (book, kind, amount, currency, category, note, day),
+        )
+        await self.conn.commit()
+        return cur.lastrowid
+
+    async def cash_delete(self, entry_id: int) -> None:
+        await self.conn.execute("DELETE FROM cash WHERE id = ?", (entry_id,))
+        await self.conn.commit()
+
+    async def cash_entries(self, book: str, first: str = "0000-00-00", last: str = "9999-12-31") -> list[dict]:
+        """Qo'lda yozilganlar + (Studiya uchun) zakaz to'lovlari, yangisi birinchi.
+
+        src = 'cash' (o'chirsa bo'ladi) yoki 'order' (zakaz to'lovi, saytning zakaz qismida).
+        """
+        rows = await self._all(
+            "SELECT id, 'cash' AS src, kind, amount, currency, category, note, day FROM cash "
+            "WHERE book = ? AND day BETWEEN ? AND ? "
+            "UNION ALL "
+            "SELECT p.id, 'order', 'kirim', p.amount, 'UZS', ?, "
+            "  '№' || p.order_id || ' · ' || o.client_name || COALESCE(' · ' || p.note, ''), "
+            "  substr(p.paid_at, 1, 10) "
+            "FROM payments p JOIN orders o ON o.id = p.order_id "
+            "WHERE ? = 'biznes' AND substr(p.paid_at, 1, 10) BETWEEN ? AND ? "
+            "ORDER BY day DESC, src, id DESC",
+            (book, first, last, ORDER_CATEGORY, book, first, last),
+        )
+        return [dict(r) for r in rows]
+
+    async def cash_categories_used(self, book: str, kind: str) -> list[str]:
+        rows = await self._all(
+            "SELECT category FROM cash WHERE book = ? AND kind = ? "
+            "GROUP BY category COLLATE NOCASE ORDER BY COUNT(*) DESC",
+            (book, kind),
+        )
+        return [r["category"] for r in rows]
+
+    async def cash_spent(self, book: str, category: str, currency: str, first: str, last: str) -> int:
+        (spent,) = await self._one(
+            "SELECT COALESCE(SUM(amount), 0) FROM cash WHERE book = ? AND kind = 'chiqim' "
+            "AND category = ? COLLATE NOCASE AND currency = ? AND day BETWEEN ? AND ?",
+            (book, category, currency, first, last),
+        )
+        return spent
+
+    async def cash_limits(self, book: str):
+        return await self._all("SELECT * FROM cash_limits WHERE book = ? ORDER BY category", (book,))
+
+    async def cash_limit_get(self, book: str, category: str, currency: str):
+        return await self._one(
+            "SELECT * FROM cash_limits WHERE book = ? AND category = ? AND currency = ?",
+            (book, category, currency),
+        )
+
+    async def cash_limit_set(self, book: str, category: str, currency: str, amount: int) -> None:
+        """amount = 0 bo'lsa limit o'chiriladi."""
+        if amount:
+            await self.conn.execute(
+                "INSERT INTO cash_limits (book, category, currency, amount) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT (book, category, currency) DO UPDATE SET amount = excluded.amount",
+                (book, category, currency, amount),
+            )
+        else:
+            await self.conn.execute(
+                "DELETE FROM cash_limits WHERE book = ? AND category = ? AND currency = ?",
+                (book, category, currency),
+            )
         await self.conn.commit()
 
     # ---------- Eslatmalar ----------
