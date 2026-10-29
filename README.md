@@ -16,8 +16,7 @@ Saytni kompyuterda ko'rish: `.env` ga `SITE_PIN=...` va `WEB_PORT=8080` yozing, 
 ## Kirim-chiqim (saytda)
 
 Saytda «💰 Kirim-chiqim» tugmasi: **Studiya** va **Shaxsiy** hisob alohida, so'm va $ alohida.
-- Tezkor qator: `-150000 benzin`, `+2 mln to'y Aliyev`, `-$50 reklama`, `-300 ming kommunal gaz` (kirillda ham bo'ladi).
-- Yoki «Tugmalar bilan yozish»: chiqim/kirim, kategoriya (tayyor ro'yxat yoki o'zingiz yozasiz), sana, izoh.
+- Katta «➖ Chiqim» / «➕ Kirim» tugmalari: summa → nimaga (tayyor ro'yxat yoki o'zingiz yozasiz) → Saqlash.
 - Zakaz to'lovlari Studiya kirimiga o'zi tushadi.
 - Bugun / hafta / oy: kirim, chiqim, qoldiq.
 - Oylik limit: kategoriya limitdan oshsa saytda va botda ogohlantiradi.

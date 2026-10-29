@@ -15,7 +15,7 @@ from aiogram import Bot
 from aiogram.types import BufferedInputFile
 from aiohttp import web
 
-from .cash import BOOKS, CATEGORIES, CURRENCIES, PERIODS, fmt_cur, month_range, parse_quick, period_range
+from .cash import BOOKS, CATEGORIES, CURRENCIES, DEFAULT_CATEGORY, PERIODS, fmt_cur, month_range, period_range
 from .config import ADMIN_IDS, BOT_TOKEN, FIELD_ROLES, ORDER_CATEGORY, ROLES, SITE_PIN, WEB_PORT
 from .db import Database
 from .montaj import client_ready_text, send_to_client, send_to_editor
@@ -60,7 +60,7 @@ STYLE = """
 --line:#382b36;--accent:#e08ab4;--accent-soft:#3a2231;--debt:#ff8a8f;--debt-soft:#3d1f24;--ok:#6fd3a0;
 --ok-soft:#1b3328;--on-accent:#1a0f15}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 "Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif}
 .wrap{max-width:720px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:16px}
 h1{font:700 1.35rem "Unbounded",system-ui,sans-serif;margin:0}
 h2{font:600 1rem "Golos Text",system-ui,sans-serif;margin:0}
@@ -88,7 +88,7 @@ header{display:flex;justify-content:space-between;align-items:center;gap:12px;fl
 .pays div{display:flex;justify-content:space-between;gap:8px}
 .inline{display:grid;grid-template-columns:1fr auto;gap:8px}
 input,select,textarea,button{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 12px;min-width:0;width:100%}
-button,.btn{cursor:pointer;font-weight:500;width:auto;display:inline-block;text-decoration:none;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 14px}
+button,.btn{cursor:pointer;font-weight:500;width:auto;display:inline-block;text-decoration:none;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:11px 16px}
 .primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .okbtn{background:var(--ok);border-color:var(--ok);color:var(--on-accent)}
 input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
@@ -122,8 +122,18 @@ summary{cursor:pointer}
 .amt{font:1rem "JetBrains Mono",monospace;white-space:nowrap;text-align:right}.amt.in{color:var(--ok)}.amt.out{color:var(--debt)}
 .x{padding:4px 9px;color:var(--muted)}
 .progress.over span{background:var(--debt)}
-.cashform:has(input[name=kind][value=kirim]:checked) .cats-chiqim,
-.cashform:has(input[name=kind][value=chiqim]:checked) .cats-kirim{display:none}
+.bigbtns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.bigbtns .btn{text-align:center;padding:16px 8px;font-size:1.05rem;font-weight:600;border-radius:14px}
+.btn.out{background:var(--debt);border-color:var(--debt);color:var(--on-accent)}
+.btn.in{background:var(--ok);border-color:var(--ok);color:var(--on-accent)}
+.linkbtn{background:none;border:0;padding:6px 0;color:var(--muted);text-decoration:underline}
+.sum3>div{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:3px 0}
+.sum3 b{font:500 1.1rem "JetBrains Mono",monospace;text-align:right}.sum3>div:last-child b{font-size:1.5rem}
+.fold>summary{list-style:none;font-weight:600;padding:10px 0 2px;color:var(--accent)}
+.fold>summary::-webkit-details-marker{display:none}
+.fold[open]>summary{margin-bottom:8px}
+.amountbig{font:500 1.6rem "JetBrains Mono",monospace;text-align:center;padding:14px}
+.chip span{padding:10px 14px;font-size:.95rem}
 """
 
 FONTS = ('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700'
@@ -210,13 +220,16 @@ def stage_block(o: dict, editors: list, bot_username: str) -> str:
 
 
 def order_card(o: dict, editors: list, bot_username: str, show_stage: bool) -> str:
+    """Kartada faqat asosiysi: mijoz, qarz, tadbir sanasi. Qolgani «Batafsil» ichida."""
     left = o["total"] - o["paid"]
     pct = min(100, round(o["paid"] * 100 / o["total"])) if o["total"] else 100
     events = "".join(
-        f'<div class="ev"><b>{escape(e["type_name"])}</b> · {fmt_date(e["date"])}'
-        f'{", " + escape(e["time"]) if e["time"] else ""} {_when(e["date"])}<br>'
-        f'<span class="meta">📍 {escape(e["address"] or "—")}'
-        f'{" · 👥 " + escape(e["team"]) if e["team"] else " · 👥 xodim yo&#39;q"}</span></div>'
+        f'<div class="ev">📅 <b>{fmt_date(e["date"])}</b>{", " + escape(e["time"]) if e["time"] else ""} '
+        f'{_when(e["date"])}<br><span class="meta">{escape(e["type_name"])} · 📍 {escape(e["address"] or "—")}</span></div>'
+        for e in o["events"]
+    )
+    teams = "".join(
+        f'<div>👥 {escape(e["type_name"])}: {escape(e["team"]) if e["team"] else "xodim yo&#39;q"}</div>'
         for e in o["events"]
     )
     pays = "".join(
@@ -227,34 +240,36 @@ def order_card(o: dict, editors: list, bot_username: str, show_stage: bool) -> s
     pay = ""
     if left > 0:
         pay = f"""
+<details class="fold"><summary>💵 To'lov qo'shish</summary>
 <form class="inline" method="post" action="/pay">
   <input type="hidden" name="order" value="{o['id']}">
-  <input name="amount" inputmode="numeric" placeholder="To'lov (masalan 500 ming)" required>
-  <button class="primary" type="submit">To'lov</button>
+  <input name="amount" inputmode="numeric" placeholder="Masalan 500 000" required aria-label="To'lov summasi">
+  <button class="primary" type="submit">Saqlash</button>
 </form>
-<form method="post" action="/pay" onsubmit="return confirm('Qolgan {fmt_money(left)} to\\'liq to\\'landimi?')">
+<form method="post" action="/pay" style="margin-top:8px" onsubmit="return confirm('Qolgan {fmt_money(left)} to\\'liq to\\'landimi?')">
   <input type="hidden" name="order" value="{o['id']}"><input type="hidden" name="amount" value="{left}">
-  <button type="submit">✓ To'liq to'landi</button>
-</form>"""
-    client = ('<span class="meta">🤖 Mijoz botga ulangan</span>' if o["client_tg_id"] else
-              f'<details><summary class="meta">🔗 Mijoz havolasi (tayyor bo\'lganda bot o\'zi xabar beradi)</summary>'
-              f'<input readonly onclick="this.select()" value="https://t.me/{attr(bot_username)}?start=o_{attr(o["client_token"])}">'
-              f'</details>')
+  <button type="submit">✓ Hammasi to'landi ({fmt_money(left)})</button>
+</form></details>"""
+    client = ('<div>🤖 Mijoz botga ulangan</div>' if o["client_tg_id"] else
+              f'<div>🔗 Mijozga shu havolani yuboring — tayyor bo\'lganda bot o\'zi xabar beradi:</div>'
+              f'<input readonly onclick="this.select()" value="https://t.me/{attr(bot_username)}?start=o_{attr(o["client_token"])}">')
+    phone = o["client_phone"] or ""
     return f"""
 <article class="row">
-  <div class="top"><div><div class="name">№{o['id']} · {escape(o['client_name'])}</div>
-    <div class="meta">{escape(o['services'] or '')}</div>
-    <div class="meta num">{escape(o['client_phone'] or '')}</div></div>
-    <div class="owe{' ok' if left <= 0 else ''}">{fmt_money(max(left, 0))}<small>{fmt_money(o['total'])} dan</small></div></div>
-  <div class="actions">{'<span class="pill ok">To&#39;liq to&#39;langan</span>' if left <= 0 else '<span class="pill">Qarzda</span>'}
-    <span class="meta">{pct}% to'landi</span></div>
-  <div class="progress"><span style="width:{pct}%"></span></div>
+  <div class="top"><div><div class="name">{escape(o['client_name'])}</div>
+    {f'<a class="meta num" href="tel:{attr(phone)}">📞 {escape(phone)}</a>' if phone else ''}</div>
+    <div class="owe{' ok' if left <= 0 else ''}">{fmt_money(left) if left > 0 else '✓ To&#39;langan'}
+      <small>{'qarz' if left > 0 else fmt_money(o['total'])}</small></div></div>
   {events}
-  {f'<div class="meta">📝 {escape(o["note"])}</div>' if o["note"] else ''}
   {stage_block(o, editors, bot_username) if show_stage else ''}
-  {client}
-  <div class="actions">{pay}</div>
-  {f'<div class="pays">{pays}</div>' if pays else ''}
+  {pay}
+  <details class="fold"><summary>ℹ️ Batafsil</summary><div class="meta" style="display:flex;flex-direction:column;gap:6px">
+    <div>№{o['id']} · {escape(o['services'] or '')} · {fmt_money(o['total'])} ({pct}% to'landi)</div>
+    {teams}
+    {f'<div>📝 {escape(o["note"])}</div>' if o["note"] else ''}
+    {client}
+    {f'<div class="pays">{pays}</div>' if pays else ''}
+  </div></details>
 </article>"""
 
 
@@ -327,10 +342,10 @@ async def index(request: web.Request) -> web.Response:
     cur = ' aria-current="page"'
     return page("Elegant Media", f"""
 <div class="wrap">
-  <header><div><div class="eyebrow">Elegant Media</div><h1>Zakaz va qarzlar</h1></div>
-    <div class="actions"><a class="btn primary" href="/new">+ Yangi zakaz</a>
-    <a class="btn" href="/cash">💰 Kirim-chiqim</a>
-    <form method="post" action="/logout"><button type="submit">Chiqish</button></form></div></header>
+  <header><h1>Elegant Media</h1>
+    <form method="post" action="/logout"><button class="linkbtn" type="submit">Chiqish</button></form></header>
+  <div class="bigbtns"><a class="btn primary" href="/new">➕ Yangi zakaz</a>
+    <a class="btn" href="/cash">💰 Kirim-chiqim</a></div>
   <nav class="tabs">
     <a href="/?tab=orders"{cur if tab == 'orders' else ''}>Zakazlar · {len(upcoming)}</a>
     <a href="/?tab=montaj"{cur if tab == 'montaj' else ''}>Montaj · {len(montaj)}</a>
@@ -357,7 +372,7 @@ EVENT_JS = """
 </script>""" % MAX_EVENTS
 
 
-def event_fieldset(i, ev: dict, staff: list) -> str:
+def event_fieldset(i, ev: dict, staff: list, types: list[str]) -> str:
     chosen = {str(x) for x in ev.get("staff", [])}
     chips = "".join(
         f'<label class="chip"><input type="checkbox" name="ev_staff_{i}" value="{s["id"]}"'
@@ -365,18 +380,28 @@ def event_fieldset(i, ev: dict, staff: list) -> str:
         f'<small>{escape(ROLES[s["role"]].lower())}{"" if s["tg_id"] else " · ulanmagan"}</small></span></label>'
         for s in staff
     ) or '<span class="meta">Botda hali xodim yo\'q — «👥 Xodimlar» bo\'limidan qo\'shing.</span>'
-    n = i + 1 if isinstance(i, int) else "__N__"
+    # Tadbir turi — tugmalar (turlar botdagi «Tadbir turlari» bo'limidan)
+    type_chips = "".join(
+        f'<label class="chip"><input type="radio" name="ev_type_{i}" value="{attr(t)}" required'
+        f'{" checked" if (ev.get("type") or "").lower() == t.lower() else ""}><span>{escape(t)}</span></label>'
+        for t in types
+    ) or f'<input name="ev_type_{i}" value="{attr(ev.get("type"))}" placeholder="Nikoh, Bazm..." required>'
+    title = "📅 Tadbir" if i == 0 else f"📅 {i + 1 if isinstance(i, int) else '__N__'}-tadbir"
+    decor_open = " open" if ev.get("decor") else ""
     return f"""
-<fieldset><legend>{n}-tadbir</legend>
+<fieldset><legend>{title}</legend>
+  <div class="chips">{type_chips}</div>
   <div class="grid2">
-    <label>Tadbir turi<input name="ev_type_{i}" list="types" value="{attr(ev.get('type'))}" placeholder="Nikoh, Bazm..." required></label>
-    <label>To'yxona / manzil<input name="ev_address_{i}" value="{attr(ev.get('address'))}" placeholder="Yakkasaroy" required></label>
     <label>Sana<input type="date" name="ev_date_{i}" value="{attr(ev.get('date'))}" required></label>
     <label>Soat<input type="time" name="ev_time_{i}" value="{attr(ev.get('time'))}" required></label>
   </div>
+  <label>To'yxona / manzil<input name="ev_address_{i}" value="{attr(ev.get('address'))}" placeholder="Yakkasaroy" required></label>
   <div><div class="meta" style="margin-bottom:6px">Kim boradi</div><div class="chips">{chips}</div></div>
-  <label>Dekor (qanday bo'lishi kerak)<input name="ev_decor_{i}" value="{attr(ev.get('decor'))}" placeholder="Saraylik max"></label>
-  <label>Dekor rasmi (dekoratorga boradi)<input type="file" name="ev_photo_{i}" accept="image/*"></label>
+  <details class="fold"{decor_open}><summary>🎀 Dekor (ixtiyoriy)</summary>
+    <div style="display:flex;flex-direction:column;gap:10px">
+    <label>Qanday bo'lishi kerak<input name="ev_decor_{i}" value="{attr(ev.get('decor'))}" placeholder="Saraylik max"></label>
+    <label>Rasm (dekoratorga boradi)<input type="file" name="ev_photo_{i}" accept="image/*"></label></div>
+  </details>
 </fieldset>"""
 
 
@@ -384,35 +409,35 @@ async def form_page(request: web.Request, values: dict | None = None, errors: li
     db: Database = request.app["db"]
     v = values or {}
     staff = [s for s in await db.staff_list() if s["role"] in FIELD_ROLES]
-    types = "".join(f'<option value="{attr(t["name"])}">' for t in await db.event_types_list())
+    types = [t["name"] for t in await db.event_types_list()]
     events = v.get("events") or [{}]
     err = ('<div class="msg err">❗️ ' + "<br>".join(escape(e) for e in errors) + '</div>') if errors else ""
+    extra_open = " open" if v.get("services") or v.get("note") else ""
     return page("Yangi zakaz", f"""
 <div class="wrap">
-  <header><div><div class="eyebrow">Elegant Media</div><h1>Yangi zakaz</h1></div>
-    <a class="btn" href="/">← Orqaga</a></header>
+  <header><h1>Yangi zakaz</h1><a class="btn" href="/">← Orqaga</a></header>
   {err}
   <form class="card" method="post" action="/new" enctype="multipart/form-data">
-    <fieldset><legend>Mijoz</legend><div class="grid2">
+    <fieldset><legend>👤 Mijoz</legend><div class="grid2">
       <label>Ism<input name="name" value="{attr(v.get('name'))}" required placeholder="Botir"></label>
       <label>Telefon<input name="phone" value="{attr(v.get('phone'))}" inputmode="tel" required placeholder="91 943 76 76"></label>
     </div></fieldset>
-    <fieldset><legend>Xizmat va narx</legend>
-      <label>Xizmatlar<input name="services" value="{attr(v.get('services'))}" required placeholder="Video, foto, dekor"></label>
-      <div class="grid2">
-        <label>Dogovor (umumiy narx)<input name="total" value="{attr(v.get('total'))}" inputmode="numeric" required placeholder="2 500 000"></label>
-        <label>Avans<input name="deposit" value="{attr(v.get('deposit'))}" inputmode="numeric" placeholder="1 500 000"></label>
-      </div>
-    </fieldset>
     <div id="events" style="display:flex;flex-direction:column;gap:12px">
-      {"".join(event_fieldset(i, ev, staff) for i, ev in enumerate(events))}
+      {"".join(event_fieldset(i, ev, staff, types) for i, ev in enumerate(events))}
     </div>
-    <button type="button" id="add-ev">+ Yana tadbir</button>
-    <label>Izoh<textarea name="note" rows="2" placeholder="Dron kerak...">{escape(v.get('note') or '')}</textarea></label>
-    <button class="primary" type="submit">Saqlash va xodimlarga yuborish</button>
+    <button type="button" id="add-ev">➕ Yana tadbir qo'shish</button>
+    <fieldset><legend>💵 Pul</legend><div class="grid2">
+      <label>Umumiy narx<input name="total" value="{attr(v.get('total'))}" inputmode="numeric" required placeholder="2 500 000"></label>
+      <label>Avans (berilgan)<input name="deposit" value="{attr(v.get('deposit'))}" inputmode="numeric" placeholder="0"></label>
+    </div></fieldset>
+    <details class="fold"{extra_open}><summary>📝 Qo'shimcha (ixtiyoriy)</summary>
+      <div style="display:flex;flex-direction:column;gap:10px">
+      <label>Xizmatlar<input name="services" value="{attr(v.get('services'))}" placeholder="Video, foto, dekor"></label>
+      <label>Izoh<textarea name="note" rows="2" placeholder="Dron kerak...">{escape(v.get('note') or '')}</textarea></label>
+      </div></details>
+    <button class="primary" type="submit" style="padding:16px">Saqlash va xodimlarga yuborish</button>
   </form>
-  <datalist id="types">{types}</datalist>
-  <template id="ev-tpl">{event_fieldset("__I__", {}, staff)}</template>
+  <template id="ev-tpl">{event_fieldset("__I__", {}, staff, types)}</template>
 </div>{EVENT_JS}""")
 
 
@@ -455,12 +480,10 @@ async def new_save(request: web.Request) -> web.Response:
         errors.append("Mijoz ismini yozing.")
     if not phone:
         errors.append("Telefon raqam noto'g'ri. Masalan: 91 943 76 76")
-    if not values["services"]:
-        errors.append("Xizmatlarni yozing.")
     if not total:
-        errors.append("Dogovor summasini yozing. Masalan: 2 500 000")
+        errors.append("Umumiy narxni yozing. Masalan: 2 500 000")
     if deposit is None or (total and deposit > total):
-        errors.append("Avans noto'g'ri yoki dogovordan katta.")
+        errors.append("Avans noto'g'ri yoki umumiy narxdan katta.")
     staff_by_id = {str(s["id"]): s for s in await db.staff_list() if s["role"] in FIELD_ROLES}
     events = []
     for n, ev in enumerate(values["events"], 1):
@@ -501,8 +524,10 @@ async def new_save(request: web.Request) -> web.Response:
             "decor_photo": photo_id, "decor_note": ev["decor"][:500] or None, "ops": ops,
         })
 
+    # Xizmat yozilmasa, tadbir turlari olinadi: «Nikoh, Bazm»
+    services = values["services"] or ", ".join(dict.fromkeys(e["type_name"] for e in out_events))
     data = {"client_name": values["name"], "client_phone": phone, "deposit": deposit,
-            "services": [{"name": values["services"][:100], "price": total}],
+            "services": [{"name": services[:100], "price": total}],
             "events": out_events, "note": values["note"][:500] or None}
     order_id, asg_ids = await db.order_create(data, next(iter(ADMIN_IDS), 0))
     sent, failed = 0, []
@@ -596,7 +621,7 @@ async def stage(request: web.Request) -> web.Response:
 CASH_FLASH = {
     "saved": ("", "✅ Yozildi: {info}"),
     "limit": ("err", "⚠️ Oylik limitdan oshdi — {info}"),
-    "bad": ("err", "Summani tushunmadim. Masalan: -150000 benzin, +2 mln to'y Aliyev, -$50 reklama"),
+    "bad": ("err", "Summani tushunmadim. Masalan: 150 000 yoki 2 mln"),
     "deleted": ("", "O'chirildi."),
     "limit_set": ("", "Limit saqlandi."),
 }
@@ -643,14 +668,6 @@ async def _limits_state(db: Database, book: str) -> list[dict]:
     return out
 
 
-def _cat_chips(kind: str, names: list[str]) -> str:
-    return "".join(
-        f'<label class="chip"><input type="radio" name="cat_{kind}" value="{attr(n)}"'
-        f'{" checked" if i == 0 else ""}><span>{escape(n)}</span></label>'
-        for i, n in enumerate(names)
-    )
-
-
 async def cash_page(request: web.Request) -> web.Response:
     if not _authed(request):
         raise web.HTTPSeeOther("/")
@@ -660,17 +677,20 @@ async def cash_page(request: web.Request) -> web.Response:
     first, last = period_range(period, today())
     entries = await db.cash_entries(book, first.isoformat(), last.isoformat())
     totals, overall = _totals(entries), _totals(await db.cash_entries(book))
-    cats = await _cash_categories(db, book)
     limits = await _limits_state(db, book)
 
-    summary = ""
-    for cur in [c for c in CURRENCIES if c == "UZS" or c in overall]:
-        t = totals.get(cur, {"kirim": 0, "chiqim": 0})
-        o = overall.get(cur, {"kirim": 0, "chiqim": 0})
-        summary += (f'<div><div class="eyebrow">{PERIODS[period]} · qoldiq · {CURRENCIES[cur]}</div>'
-                    f'<div class="big">{fmt_cur(t["kirim"] - t["chiqim"], cur)}</div></div>'
-                    f'<div class="side">Kirim: +{fmt_cur(t["kirim"], cur)}<br>Chiqim: −{fmt_cur(t["chiqim"], cur)}'
-                    f'<br>Jami qoldiq: {fmt_cur(o["kirim"] - o["chiqim"], cur)}</div>')
+    zero = {"kirim": 0, "chiqim": 0}
+    t, o = totals.get("UZS", zero), overall.get("UZS", zero)
+    summary = (f'<div class="sum3"><div><span class="eyebrow">Kirim</span><b>+{fmt_money(t["kirim"])}</b></div>'
+               f'<div><span class="eyebrow">Chiqim</span><b>−{fmt_money(t["chiqim"])}</b></div>'
+               f'<div><span class="eyebrow">Qoldi</span><b>{fmt_money(t["kirim"] - t["chiqim"])}</b></div></div>'
+               f'<div class="meta" style="color:inherit;opacity:.85;margin-top:8px">'
+               f'Kassada jami: {fmt_money(o["kirim"] - o["chiqim"])}')
+    if "USD" in overall:
+        u, uo = totals.get("USD", zero), overall["USD"]
+        summary += (f'<br>Dollar: +{fmt_cur(u["kirim"], "USD")} / −{fmt_cur(u["chiqim"], "USD")}'
+                    f' · jami {fmt_cur(uo["kirim"] - uo["chiqim"], "USD")}')
+    summary += '</div>'
 
     hidden = f'<input type="hidden" name="book" value="{book}"><input type="hidden" name="p" value="{period}">'
     lines, day = [], None
@@ -707,7 +727,7 @@ async def cash_page(request: web.Request) -> web.Response:
         f'{min(100, round(x["spent"] * 100 / x["amount"]))}%"></span></div></div>'
         for x in limits
     ) or '<div class="meta">Hali limit qo\'yilmagan.</div>'
-    cat_options = "".join(f'<option value="{attr(n)}">' for n in cats["chiqim"])
+    cat_options = "".join(f'<option value="{attr(n)}">' for n in (await _cash_categories(db, book))["chiqim"])
     cur_options = "".join(f'<option value="{c}">{label}</option>' for c, label in CURRENCIES.items())
     cur = ' aria-current="page"'
     book_tabs = "".join(f'<a href="/cash?book={b}&p={period}"{cur if b == book else ""}>{label}</a>'
@@ -715,40 +735,21 @@ async def cash_page(request: web.Request) -> web.Response:
     period_tabs = "".join(f'<a href="/cash?book={book}&p={p}"{cur if p == period else ""}>{label}</a>'
                           for p, label in PERIODS.items())
     span = fmt_date(first.isoformat()) if period == "day" else f"{first:%d.%m} – {last:%d.%m.%Y}"
-    biz_note = "Zakaz to&#39;lovlari kirimga o&#39;zi tushadi." if book == "biznes" else ""
+    biz_note = ('<div class="meta" style="text-align:center">Zakaz to&#39;lovlari kirimga o&#39;zi tushadi.</div>'
+                if book == "biznes" else "")
+    new = f"/cash/new?book={book}&p={period}&kind="
     return page("Kirim-chiqim", f"""
 <div class="wrap">
-  <header><div><div class="eyebrow">Elegant Media</div><h1>Kirim-chiqim</h1></div>
-    <a class="btn" href="/">← Zakazlar</a></header>
+  <header><h1>Kirim-chiqim</h1><a class="btn" href="/">← Zakazlar</a></header>
   <nav class="tabs two">{book_tabs}</nav>
-  <nav class="tabs">{period_tabs}</nav>
-  <section class="total">{summary}</section>
   {msg_html}
-  <form class="inline" method="post" action="/cash/quick">{hidden}
-    <input name="text" required autocomplete="off" aria-label="Tezkor yozish"
-      placeholder="-150000 benzin  ·  +2 mln to'y Aliyev">
-    <button class="primary" type="submit">Yozish</button></form>
-  <div class="meta">Boshida <b>−</b> chiqim, <b>+</b> kirim. Dollar: <b>-$50 reklama</b>.
-    {biz_note}</div>
-  <details class="row"><summary><b>➕ ➖ Tugmalar bilan yozish</b></summary>
-  <form class="card cashform" method="post" action="/cash/add">{hidden}
-    <div class="chips">
-      <label class="chip"><input type="radio" name="kind" value="chiqim" checked><span>➖ Chiqim</span></label>
-      <label class="chip"><input type="radio" name="kind" value="kirim"><span>➕ Kirim</span></label></div>
-    <div class="grid2">
-      <label>Summa<input name="amount" inputmode="numeric" required placeholder="150 000"></label>
-      <label>Valyuta<select name="currency">{cur_options}</select></label></div>
-    <div class="cats-chiqim"><div class="meta" style="margin-bottom:6px">Kategoriya</div>
-      <div class="chips">{_cat_chips("chiqim", cats["chiqim"])}</div></div>
-    <div class="cats-kirim"><div class="meta" style="margin-bottom:6px">Kategoriya</div>
-      <div class="chips">{_cat_chips("kirim", cats["kirim"])}</div></div>
-    <label>Yoki o'zingiz yozing (yangi kategoriya)<input name="cat_custom" maxlength="40"
-      placeholder="Masalan: Gaz, Svet, Internet"></label>
-    <div class="grid2">
-      <label>Sana<input type="date" name="day" value="{today().isoformat()}" required></label>
-      <label>Izoh<input name="note" maxlength="200" placeholder="Nexia, 20 litr"></label></div>
-    <button class="primary" type="submit">Saqlash</button>
-  </form></details>
+  <div class="bigbtns"><a class="btn out" href="{new}chiqim">➖ Chiqim</a>
+    <a class="btn in" href="{new}kirim">➕ Kirim</a></div>
+  {biz_note}
+  <nav class="tabs">{period_tabs}</nav>
+  <section class="total" style="display:block">{summary}</section>
+  <h2>{span}</h2>
+  {ledger}
   <details class="row"{" open" if over else ""}><summary><b>🎯 Oylik limitlar</b>
     <span class="meta">— chiqim limitdan oshsa ogohlantiradi</span></summary>
     {limit_rows}
@@ -760,8 +761,45 @@ async def cash_page(request: web.Request) -> web.Response:
         <button type="submit">Limitni saqlash</button></div>
     </form></details>
   <datalist id="cash-cats">{cat_options}</datalist>
-  <h2>{PERIODS[period]}: {span}</h2>
-  {ledger}
+</div>""")
+
+
+async def cash_new(request: web.Request) -> web.Response:
+    """Bitta kirim yoki chiqimni yozish: summa → kategoriya → saqlash."""
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    q = request.query
+    book, period = _book_period(q)
+    kind = "kirim" if q.get("kind") == "kirim" else "chiqim"
+    names = (await _cash_categories(request.app["db"], book))[kind]
+    chips = "".join(
+        f'<label class="chip"><input type="radio" name="cat_{kind}" value="{attr(n)}"><span>{escape(n)}</span></label>'
+        for n in names
+    )
+    currencies = "".join(
+        f'<label class="chip"><input type="radio" name="currency" value="{c}"{" checked" if c == "UZS" else ""}>'
+        f'<span>{label}</span></label>'
+        for c, label in CURRENCIES.items()
+    )
+    title = "➕ Kirim" if kind == "kirim" else "➖ Chiqim"
+    err = f'<div class="msg err">{CASH_FLASH["bad"][1]}</div>' if q.get("m") == "bad" else ""
+    return page(title, f"""
+<div class="wrap">
+  <header><h1>{title} · {BOOKS[book]}</h1><a class="btn" href="/cash?book={book}&p={period}">← Orqaga</a></header>
+  {err}
+  <form class="card" method="post" action="/cash/add">
+    <input type="hidden" name="book" value="{book}"><input type="hidden" name="p" value="{period}">
+    <input type="hidden" name="kind" value="{kind}">
+    <label>Qancha?<input class="amountbig" name="amount" inputmode="numeric" required autofocus
+      placeholder="150 000" autocomplete="off"></label>
+    <div class="chips">{currencies}</div>
+    <div><div class="meta" style="margin-bottom:6px">Nimaga?</div><div class="chips">{chips}</div></div>
+    <label>Ro'yxatda yo'q bo'lsa, yozing<input name="cat_custom" maxlength="40" placeholder="Masalan: Internet"></label>
+    <label>Izoh (ixtiyoriy)<input name="note" maxlength="200" placeholder="Nexia, 20 litr"></label>
+    <details class="fold"><summary>📅 Bugun emas, boshqa kun</summary>
+      <label>Sana<input type="date" name="day" value="{today().isoformat()}" required></label></details>
+    <button class="primary" type="submit" style="padding:16px">Saqlash</button>
+  </form>
 </div>""")
 
 
@@ -784,18 +822,6 @@ async def _cash_save(request: web.Request, book: str, period: str, e: dict) -> N
     raise _cash_back(book, period, m="saved", info=info)
 
 
-async def cash_quick(request: web.Request) -> web.Response:
-    if not _authed(request):
-        raise web.HTTPSeeOther("/")
-    form = await request.post()
-    book, period = _book_period(form)
-    e = parse_quick(str(form.get("text", ""))[:300], await _cash_categories(request.app["db"], book))
-    if not e:
-        raise _cash_back(book, period, m="bad")
-    e["category"], e["note"], e["day"] = e["category"][:40], e["note"][:200], today().isoformat()
-    await _cash_save(request, book, period, e)
-
-
 async def cash_add(request: web.Request) -> web.Response:
     if not _authed(request):
         raise web.HTTPSeeOther("/")
@@ -809,8 +835,8 @@ async def cash_add(request: web.Request) -> web.Response:
     except ValueError:
         day = None
     if not amount or not day:
-        raise _cash_back(book, period, m="bad")
-    category = (get("cat_custom") or get(f"cat_{kind}") or ("Boshqa kirim" if kind == "kirim" else "Boshqa"))[:40]
+        raise web.HTTPSeeOther("/cash/new?" + urlencode({"book": book, "p": period, "kind": kind, "m": "bad"}))
+    category = (get("cat_custom") or get(f"cat_{kind}") or DEFAULT_CATEGORY[kind])[:40]
     await _cash_save(request, book, period, {
         "kind": kind, "amount": amount, "currency": "USD" if get("currency") == "USD" else "UZS",
         "category": category, "note": get("note")[:200], "day": day,
@@ -879,7 +905,7 @@ def build_app(bot: Bot, db: Database, bot_username: str) -> web.Application:
         web.get("/", index), web.get("/new", new_form), web.post("/new", new_save),
         web.post("/login", login), web.post("/logout", logout), web.post("/pay", pay),
         web.post("/editor", set_editor), web.post("/stage", stage), web.get("/health", health),
-        web.get("/cash", cash_page), web.post("/cash/quick", cash_quick), web.post("/cash/add", cash_add),
+        web.get("/cash", cash_page), web.get("/cash/new", cash_new), web.post("/cash/add", cash_add),
         web.post("/cash/del", cash_del), web.post("/cash/limit", cash_limit),
     ])
     return app
