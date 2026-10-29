@@ -47,6 +47,13 @@ def admin_menu() -> ReplyKeyboardMarkup:
     )
 
 
+BTN_MY_JOBS = "📅 Mening ishlarim"
+
+
+def staff_menu() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=BTN_MY_JOBS)]], resize_keyboard=True)
+
+
 def cancel_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=BTN_CANCEL)]], resize_keyboard=True)
 

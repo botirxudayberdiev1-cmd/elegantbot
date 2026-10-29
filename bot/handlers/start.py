@@ -5,7 +5,7 @@ from aiogram.types import Message, ReplyKeyboardRemove
 
 from ..config import ROLES
 from ..db import Database
-from ..keyboards import admin_menu
+from ..keyboards import BTN_MY_JOBS, admin_menu, staff_menu
 from ..utils import escape, notify_admins
 
 router = Router(name="start")
@@ -72,8 +72,8 @@ async def link_staff(message: Message, token: str, db: Database, bot: Bot):
         f"✅ Xush kelibsiz, <b>{escape(staff['name'])}</b>!\n"
         f"Siz <b>{role}</b> sifatida ulandingiz.\n\n"
         + ("Quyidagi menyudan foydalaning." if is_admin
-           else "Sizga biriktirilgan tadbirlar shu yerga keladi."),
-        reply_markup=admin_menu() if is_admin else ReplyKeyboardRemove(),
+           else f"Sizga biriktirilgan tadbirlar shu yerga keladi. Ro'yxatni ko'rish: «{BTN_MY_JOBS}»."),
+        reply_markup=admin_menu() if is_admin else staff_menu(),
     )
 
     username = f" (@{escape(user.username)})" if user.username else ""
@@ -100,8 +100,8 @@ async def start_plain(message: Message, db: Database, state: FSMContext):
         await message.answer(
             f"Assalomu alaykum, <b>{escape(staff['name'])}</b>!\n"
             f"Siz {ROLES[staff['role']]} sifatida ro'yxatdasiz. "
-            "Sizga biriktirilgan ishlar shu yerga keladi.",
-            reply_markup=ReplyKeyboardRemove(),
+            f"Sizga biriktirilgan ishlar shu yerga keladi. Ro'yxatni ko'rish: «{BTN_MY_JOBS}».",
+            reply_markup=staff_menu(),
         )
         return
 

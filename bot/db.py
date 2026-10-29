@@ -469,6 +469,31 @@ class Database:
         await self.conn.execute("UPDATE orders SET client_tg_id = ? WHERE id = ?", (tg_id, order_id))
         await self.conn.commit()
 
+    async def staff_jobs(self, staff_id: int, from_day: str):
+        """Xodimning shu kundan keyingi tadbirlari (bora olmayman deganlari bundan mustasno)."""
+        return await self._all(
+            "SELECT a.id, a.event_id, a.status, a.pay, e.date, e.time, e.address, e.lat, e.lon, "
+            "  e.decor_note, t.name AS type_name, o.id AS order_id, o.client_name, o.client_phone, o.note "
+            "FROM assignments a "
+            "JOIN events e ON e.id = a.event_id "
+            "JOIN event_types t ON t.id = e.event_type_id "
+            "JOIN orders o ON o.id = e.order_id "
+            "WHERE a.staff_id = ? AND e.date >= ? AND a.status != 'rad' "
+            "ORDER BY e.date, e.time",
+            (staff_id, from_day),
+        )
+
+    async def editor_jobs(self, staff_id: int):
+        """Montajchiga berilgan, hali tayyor bo'lmagan to'ylar."""
+        return await self._all(
+            "SELECT o.id, o.client_name, o.editing_taken_at, "
+            "  (SELECT MIN(date) FROM events WHERE order_id = o.id) AS first_date, "
+            "  (SELECT GROUP_CONCAT(t.name, ', ') FROM events e JOIN event_types t "
+            "   ON t.id = e.event_type_id WHERE e.order_id = o.id) AS types "
+            "FROM orders o WHERE o.editor_id = ? AND o.editing_done_at IS NULL ORDER BY o.editing_taken_at",
+            (staff_id,),
+        )
+
     async def payment_add(self, order_id: int, amount: int, note: str) -> None:
         await self.conn.execute(
             "INSERT INTO payments (order_id, amount, note) VALUES (?, ?, ?)", (order_id, amount, note)
