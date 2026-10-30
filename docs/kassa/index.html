@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Elegant Kassa</title>
+<meta name="theme-color" content="#7b2350">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Kassa">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700&family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: one phone column — balance card, two big action buttons, period ledger; entry form slides up as a sheet. */
+:root{
+  --bg:#f6f2f4; --surface:#ffffff; --ink:#24161f; --muted:#7a6872; --line:#e8dfe4;
+  --plum:#7b2350; --plum-soft:#f3e3eb; --on-plum:#ffffff;
+  --out:#b4232f; --out-soft:#fbe7e8; --in:#1d7a4c; --in-soft:#e0f2e8; --warn:#9a5b00; --warn-soft:#fdf1dc;
+  --display:"Unbounded",system-ui,sans-serif; --body:"Onest",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#16101a; --surface:#211924; --ink:#f3e9ee; --muted:#a8959f; --line:#382a35;
+  --plum:#e48bb6; --plum-soft:#3b2232; --on-plum:#1a0f15;
+  --out:#ff8b90; --out-soft:#3e1f25; --in:#72d6a3; --in-soft:#1a3428; --warn:#f2b45a; --warn-soft:#3a2a12; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#16101a; --surface:#211924; --ink:#f3e9ee; --muted:#a8959f; --line:#382a35;
+  --plum:#e48bb6; --plum-soft:#3b2232; --on-plum:#1a0f15;
+  --out:#ff8b90; --out-soft:#3e1f25; --in:#72d6a3; --in-soft:#1a3428; --warn:#f2b45a; --warn-soft:#3a2a12; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 var(--body)}
+.wrap{max-width:560px;margin:0 auto;padding-block:18px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:14px}
+h1{font:700 1.3rem var(--display);margin:0;letter-spacing:-.01em}
+h2{font:600 1rem var(--body);margin:0}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.small{font-size:.85rem}
+.eyebrow{font-size:.72rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--plum);outline-offset:2px}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px}
+.seg button{border:0;background:none;padding:10px 6px;border-radius:9px;font-weight:600;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--plum-soft);color:var(--plum)}
+.big{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.big button{border:0;border-radius:16px;padding:20px 8px;font-size:1.15rem;font-weight:700;color:#fff;display:flex;align-items:center;justify-content:center;gap:8px}
+.big .out{background:var(--out)} .big .in{background:var(--in)}
+:root[data-theme="dark"] .big button{color:#1a0f15}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .big button{color:#1a0f15}}
+.big b{font:700 1.5rem/1 var(--mono)}
+.balance{background:var(--plum);color:var(--on-plum);border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:6px}
+.balance .eyebrow{color:inherit;opacity:.75}
+.prow{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.prow b{font:500 1.05rem var(--mono);font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}
+.prow.total b{font-size:1.7rem}
+.balance .foot{font-size:.85rem;opacity:.85;border-top:1px solid color-mix(in srgb,var(--on-plum) 25%,transparent);padding-top:8px;margin-top:4px}
+.periodnav{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.periodnav button.arrow{border:1px solid var(--line);background:var(--surface);border-radius:10px;width:44px;height:40px;font-size:1.1rem}
+.periodnav button.arrow:disabled{opacity:.35;cursor:default}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:6px 14px}
+.dayhead{font-size:.74rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:12px 0 2px}
+.line{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.dayhead+.line{border-top:0}
+.line .cat{font-weight:600;overflow-wrap:anywhere}
+.line .note{font-size:.84rem;color:var(--muted);overflow-wrap:anywhere}
+.amt{font:500 1rem var(--mono);white-space:nowrap;font-variant-numeric:tabular-nums}
+.amt.in{color:var(--in)} .amt.out{color:var(--out)}
+.del{border:1px solid var(--line);background:var(--surface);border-radius:9px;min-width:36px;height:34px;color:var(--muted)}
+.del.sure{background:var(--out);border-color:var(--out);color:#fff;padding:0 10px;font-size:.85rem;font-weight:600}
+.empty{text-align:center;padding:30px 16px;color:var(--muted);border:1px dashed var(--line);border-radius:14px}
+.bars{display:flex;flex-direction:column;gap:10px;padding:10px 0}
+.bar .top{display:flex;justify-content:space-between;gap:8px;font-size:.9rem}
+.bar .track{height:8px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:4px}
+.bar .fill{height:100%;background:var(--out);border-radius:99px}
+.bar .fill.lim{background:var(--in)} .bar .fill.over{background:var(--out)}
+.msg{padding:11px 13px;border-radius:12px;font-size:.92rem}
+.msg.ok{background:var(--in-soft);color:var(--in)} .msg.err{background:var(--out-soft);color:var(--out)} .msg.warn{background:var(--warn-soft);color:var(--warn)}
+details.sec{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+details.sec>summary{cursor:pointer;font-weight:600;list-style:none;display:flex;justify-content:space-between;align-items:center}
+details.sec>summary::-webkit-details-marker{display:none}
+details.sec>summary::after{content:"＋";color:var(--muted)}
+details.sec[open]>summary::after{content:"－"}
+label.f{display:flex;flex-direction:column;gap:5px;font-size:.84rem;color:var(--muted);font-weight:500}
+input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:11px 12px;width:100%;min-width:0}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:10px 14px;font-size:.95rem}
+.chip[aria-pressed="true"]{background:var(--plum);border-color:var(--plum);color:var(--on-plum)}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px 16px;font-weight:600}
+.btn.primary{background:var(--plum);border-color:var(--plum);color:var(--on-plum);padding:16px;font-size:1.05rem;width:100%}
+.btn.ghost{border:0;background:none;color:var(--muted);padding:8px 0}
+/* Entry sheet */
+.sheet{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;justify-content:flex-end;background:color-mix(in srgb,#000 45%,transparent)}
+.sheet .panel{background:var(--surface);border-radius:20px 20px 0 0;max-height:94%;overflow:auto;padding-top:16px;padding-bottom:calc(20px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.sheet .inner{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.amountin{font:500 1.9rem var(--mono);text-align:center;padding:14px;background:var(--bg)}
+.preview{text-align:center;font-size:.9rem;color:var(--muted);min-height:1.3em}
+.kindtag{font:700 1.15rem var(--display)}
+.kindtag.out{color:var(--out)} .kindtag.in{color:var(--in)}
+@media (prefers-reduced-motion:no-preference){.sheet .panel{animation:up .18s ease-out}@keyframes up{from{transform:translateY(24px);opacity:.6}}}
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+  <header><h1>Elegant Kassa</h1><span class="small muted" id="sync">📱 Telefonda saqlanadi</span></header>
+  <div class="seg" role="group" aria-label="Hisob">
+    <button type="button" data-book="biznes" aria-pressed="true">Studiya</button>
+    <button type="button" data-book="shaxsiy" aria-pressed="false">Shaxsiy</button>
+  </div>
+  <div id="flash"></div>
+  <div class="big">
+    <button type="button" class="out" id="btn-out"><b>−</b> Chiqim</button>
+    <button type="button" class="in" id="btn-in"><b>+</b> Kirim</button>
+  </div>
+  <div class="seg" role="group" aria-label="Davr">
+    <button type="button" data-period="day" aria-pressed="false">Bugun</button>
+    <button type="button" data-period="week" aria-pressed="false">Hafta</button>
+    <button type="button" data-period="month" aria-pressed="true">Oy</button>
+  </div>
+  <div class="periodnav">
+    <button type="button" class="arrow" id="prev" aria-label="Oldingi">‹</button>
+    <h2 id="span">—</h2>
+    <button type="button" class="arrow" id="next" aria-label="Keyingi">›</button>
+  </div>
+  <section class="balance" id="balance" aria-live="polite"></section>
+  <div id="limitwarn"></div>
+  <h2>Yozuvlar</h2>
+  <div id="ledger"><div class="empty">Yozuvlar yuklanmoqda…</div></div>
+  <details class="sec" id="cats-sec"><summary>Chiqim nimalarga ketdi</summary><div class="bars" id="bars"></div></details>
+  <details class="sec" id="lim-sec"><summary>Oylik limitlar</summary>
+    <div class="bars" id="limits"></div>
+    <form id="limform" style="display:flex;flex-direction:column;gap:10px;margin-top:6px">
+      <div class="row2">
+        <label class="f">Kategoriya<input id="lim-cat" list="catlist" maxlength="40" required placeholder="Reklama"></label>
+        <label class="f">Oyiga ko'pi bilan<input id="lim-amt" inputmode="decimal" required placeholder="2 mln"></label>
+      </div>
+      <div class="row2">
+        <select id="lim-cur" aria-label="Valyuta"><option value="UZS">so'm</option><option value="USD">$</option></select>
+        <button class="btn" type="submit">Limitni saqlash</button>
+      </div>
+      <div class="small muted">Limitni o'chirish uchun summaga 0 yozing.</div>
+    </form>
+  </details>
+  <details class="sec" id="bk-sec"><summary>Nusxa olish va tiklash</summary>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
+      <div class="small muted" id="bk-info">Yozuvlar shu telefonda saqlanadi. Telefon almashsa yoki brauzer tozalansa yo'qolmasligi uchun haftada bir marta nusxa oling va faylni Telegram'dagi «Saqlangan xabarlar»ga yuboring.</div>
+      <button type="button" class="btn" id="bk-save">⬇️ Nusxa olish (fayl)</button>
+      <label class="btn" style="text-align:center;cursor:pointer">⬆️ Nusxadan tiklash<input type="file" id="bk-load" accept=".json,application/json" hidden></label>
+    </div>
+  </details>
+  <datalist id="catlist"></datalist>
+</div>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <form class="inner" id="entryform" autocomplete="off">
+      <div class="prow"><span class="kindtag" id="sheet-title">Chiqim</span>
+        <button type="button" class="btn ghost" id="sheet-close">Bekor qilish</button></div>
+      <label class="f">Qancha?<input class="amountin" id="f-amount" inputmode="decimal" required placeholder="150 000"></label>
+      <div class="preview num" id="f-preview"></div>
+      <div class="chips" role="group" aria-label="Valyuta">
+        <button type="button" class="chip" data-cur="UZS" aria-pressed="true">so'm</button>
+        <button type="button" class="chip" data-cur="USD" aria-pressed="false">$ dollar</button>
+      </div>
+      <div><div class="small muted" style="margin-bottom:7px">Nimaga?</div><div class="chips" id="f-cats" role="group" aria-label="Kategoriya"></div></div>
+      <label class="f">Ro'yxatda yo'q bo'lsa, yozing<input id="f-custom" maxlength="40" placeholder="Masalan: Internet"></label>
+      <label class="f">Izoh (ixtiyoriy)<input id="f-note" maxlength="200" placeholder="Nexia, 20 litr"></label>
+      <label class="f">Sana<input type="date" id="f-day" required></label>
+      <div id="f-err"></div>
+      <button class="btn primary" type="submit" id="f-save">Saqlash</button>
+    </form>
+  </div>
+</div>
+
+<script>
+(() => {
+  const BOOKS = {biznes: "Studiya", shaxsiy: "Shaxsiy"};
+  const CATS = {
+    "biznes:chiqim": ["Operatorlarga maosh", "Ijara", "Texnika", "Benzin", "Reklama", "Ovqat", "Kommunal to'lovlar", "Boshqa"],
+    "biznes:kirim": ["To'y / zakaz", "Klip", "Foto", "Boshqa kirim"],
+    "shaxsiy:chiqim": ["Oziq-ovqat", "Kommunal to'lovlar", "Transport", "Kiyim", "Sog'liq", "Bolalar", "Boshqa"],
+    "shaxsiy:kirim": ["Maosh", "Studiyadan", "Boshqa kirim"],
+  };
+  const DEFAULT_CAT = {chiqim: "Boshqa", kirim: "Boshqa kirim"};
+  const WEEKDAYS = ["yakshanba", "dushanba", "seshanba", "chorshanba", "payshanba", "juma", "shanba"];
+  const MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
+
+  const $ = id => document.getElementById(id);
+  const state = {book: "biznes", period: "month", offset: 0, entries: [], limits: {}, loaded: false};
+  let form = {kind: "chiqim", cur: "UZS", cat: null};
+  const KEY = "elegant-kassa-v1";
+  function load() {
+    try { const d = JSON.parse(localStorage.getItem(KEY) || "{}");
+      state.entries = Array.isArray(d.entries) ? d.entries : []; state.limits = d.limits && typeof d.limits === "object" ? d.limits : {};
+    } catch (e) { state.entries = []; state.limits = {}; }
+    state.loaded = true;
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify({entries: state.entries, limits: state.limits, savedAt: Date.now()})); return true; }
+    catch (e) { flash("err", "Saqlab bo'lmadi: telefonda joy tugagan bo'lishi mumkin.", 0); return false; }
+  }
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+  try { const b = localStorage.getItem("kassa.book"); if (b in BOOKS) state.book = b; } catch (e) {}
+
+  // ---------- Helpers ----------
+  const pad = n => String(n).padStart(2, "0");
+  const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const fromIso = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+  const today = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); };
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+  const groups = n => Math.round(Math.abs(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  const money = (n, cur) => (n < 0 ? "−" : "") + (cur === "USD" ? "$" + groups(n) : groups(n) + " so'm");
+
+  // «150 000», «200 ming», «2 mln», «1,5 mln», «200k» -> son
+  function parseMoney(text) {
+    let t = String(text).toLowerCase().replace(/so['ʻ’]?m|сум|sum|\$|dollar/g, "").trim();
+    const m = t.replace(/\s+/g, "").match(/^(\d+(?:[.,]\d+)?)(mln|million|млн|m|ming|минг|k)?$/);
+    if (m && m[2]) {
+      const v = parseFloat(m[1].replace(",", ".")) * (/^(mln|million|млн|m)$/.test(m[2]) ? 1e6 : 1e3);
+      return Math.round(v);
+    }
+    const digits = t.replace(/[\s.,]/g, "");
+    return /^\d+$/.test(digits) ? parseInt(digits, 10) : null;
+  }
+
+  function range() {
+    const t = today();
+    if (state.period === "day") { const d = new Date(t); d.setDate(d.getDate() + state.offset); return [d, d]; }
+    if (state.period === "week") {
+      const mon = new Date(t); mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7) + 7 * state.offset);
+      const sun = new Date(mon); sun.setDate(sun.getDate() + 6); return [mon, sun];
+    }
+    const first = new Date(t.getFullYear(), t.getMonth() + state.offset, 1);
+    return [first, new Date(first.getFullYear(), first.getMonth() + 1, 0)];
+  }
+  function spanLabel([a, b]) {
+    if (state.period === "day") {
+      if (state.offset === 0) return "Bugun";
+      if (state.offset === -1) return "Kecha";
+      return `${a.getDate()} ${MONTHS[a.getMonth()]}`;
+    }
+    if (state.period === "month") return `${MONTHS[a.getMonth()][0].toUpperCase()}${MONTHS[a.getMonth()].slice(1)} ${a.getFullYear()}`;
+    return `${a.getDate()} ${MONTHS[a.getMonth()].slice(0, 3)} – ${b.getDate()} ${MONTHS[b.getMonth()].slice(0, 3)}`;
+  }
+  const dayLabel = s => { const d = fromIso(s), t = iso(today());
+    const y = new Date(today()); y.setDate(y.getDate() - 1);
+    const name = s === t ? "Bugun" : s === iso(y) ? "Kecha" : `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+    return `${name} · ${WEEKDAYS[d.getDay()]}`; };
+
+  function categories(book, kind) {
+    const base = CATS[`${book}:${kind}`].slice();
+    const known = new Set(base.map(c => c.toLowerCase()));
+    const counts = {};
+    for (const e of state.entries) if (e.book === book && e.kind === kind && !known.has(e.category.toLowerCase()))
+      counts[e.category] = (counts[e.category] || 0) + 1;
+    const extra = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+    base.splice(base.length - 1, 0, ...extra);
+    return base;
+  }
+  function totals(list) {
+    const t = {UZS: {kirim: 0, chiqim: 0}, USD: {kirim: 0, chiqim: 0}};
+    for (const e of list) t[e.currency][e.kind] += e.amount;
+    return t;
+  }
+  function monthSpent(book, cat, cur, dayStr) {
+    const pre = dayStr.slice(0, 7);
+    return state.entries.filter(e => e.book === book && e.kind === "chiqim" && e.currency === cur &&
+      e.category.toLowerCase() === cat.toLowerCase() && e.day.startsWith(pre)).reduce((s, e) => s + e.amount, 0);
+  }
+  const bookLimits = () => Object.values(state.limits).filter(l => l.book === state.book);
+
+  function flash(kind, html, ms = 4000) {
+    $("flash").innerHTML = `<div class="msg ${kind}">${html}</div>`;
+    clearTimeout(flash.t); if (ms) flash.t = setTimeout(() => { $("flash").innerHTML = ""; }, ms);
+  }
+
+  // ---------- Render ----------
+  function render() {
+    document.querySelectorAll("[data-book]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.book === state.book)));
+    document.querySelectorAll("[data-period]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.period === state.period)));
+    const r = range(), [a, b] = r.map(iso);
+    $("span").textContent = spanLabel(r);
+    $("next").disabled = state.offset >= 0;
+
+    const mine = state.entries.filter(e => e.book === state.book);
+    const inPeriod = mine.filter(e => e.day >= a && e.day <= b);
+    const t = totals(inPeriod), all = totals(mine);
+    const hasUsd = mine.some(e => e.currency === "USD");
+    let bal = `<div class="eyebrow">${BOOKS[state.book]} · ${esc(spanLabel(r))}</div>
+      <div class="prow"><span>Kirim</span><b>+${money(t.UZS.kirim, "UZS")}</b></div>
+      <div class="prow"><span>Chiqim</span><b>−${money(t.UZS.chiqim, "UZS")}</b></div>
+      <div class="prow total"><span>Qoldi</span><b>${money(t.UZS.kirim - t.UZS.chiqim, "UZS")}</b></div>
+      <div class="foot">Kassada jami: <span class="num">${money(all.UZS.kirim - all.UZS.chiqim, "UZS")}</span>`;
+    if (hasUsd) bal += `<br>Dollar: <span class="num">+${money(t.USD.kirim, "USD")} / −${money(t.USD.chiqim, "USD")}</span> · jami <span class="num">${money(all.USD.kirim - all.USD.chiqim, "USD")}</span>`;
+    $("balance").innerHTML = bal + "</div>";
+
+    // Ledger
+    if (!state.loaded) { /* keep loading state */ }
+    else if (!inPeriod.length) {
+      $("ledger").innerHTML = `<div class="empty">${esc(spanLabel(r))} hali hech narsa yozilmagan.<br>Yuqoridagi <b>Chiqim</b> yoki <b>Kirim</b> tugmasini bosing.</div>`;
+    } else {
+      const sorted = inPeriod.slice().sort((x, y) => y.day.localeCompare(x.day) || (y.createdAt || 0) - (x.createdAt || 0));
+      let html = "", day = null;
+      for (const e of sorted) {
+        if (e.day !== day) { day = e.day; html += `<div class="dayhead">${esc(dayLabel(day))}</div>`; }
+        const sign = e.kind === "kirim" ? "+" : "−", cls = e.kind === "kirim" ? "in" : "out";
+        html += `<div class="line"><div><div class="cat">${esc(e.category)}</div>${e.note ? `<div class="note">${esc(e.note)}</div>` : ""}</div>
+          <div class="amt ${cls}">${sign}${money(e.amount, e.currency)}</div>
+          <button type="button" class="del" data-del="${esc(e.id)}" aria-label="O'chirish">×</button></div>`;
+      }
+      $("ledger").innerHTML = `<div class="card">${html}</div>`;
+    }
+
+    // Category breakdown (so'm chiqim in period)
+    const byCat = {};
+    for (const e of inPeriod) if (e.kind === "chiqim" && e.currency === "UZS") byCat[e.category] = (byCat[e.category] || 0) + e.amount;
+    const cats = Object.entries(byCat).sort((x, y) => y[1] - x[1]);
+    const max = cats.length ? cats[0][1] : 0;
+    $("bars").innerHTML = cats.length ? cats.map(([c, v]) => `<div class="bar"><div class="top"><span>${esc(c)}</span><span class="num">${money(v, "UZS")}</span></div>
+      <div class="track"><div class="fill" style="width:${Math.max(2, Math.round(v * 100 / max))}%"></div></div></div>`).join("")
+      : `<div class="small muted">Bu davrda so'mda chiqim yo'q.</div>`;
+
+    // Limits (current month)
+    const nowDay = iso(today()), lims = bookLimits().sort((x, y) => x.category.localeCompare(y.category));
+    const over = [];
+    $("limits").innerHTML = lims.length ? lims.map(l => {
+      const spent = monthSpent(state.book, l.category, l.currency, nowDay);
+      const isOver = spent > l.amount; if (isOver) over.push(`${esc(l.category)} (${money(spent, l.currency)} / ${money(l.amount, l.currency)})`);
+      return `<div class="bar"><div class="top"><span><b>${esc(l.category)}</b></span><span class="num">${money(spent, l.currency)} / ${money(l.amount, l.currency)}</span></div>
+        <div class="track"><div class="fill ${isOver ? "over" : "lim"}" style="width:${Math.min(100, Math.round(spent * 100 / l.amount))}%"></div></div></div>`;
+    }).join("") : `<div class="small muted">Hali limit qo'yilmagan. Masalan: Reklama — oyiga 2 mln.</div>`;
+    $("limitwarn").innerHTML = over.length ? `<div class="msg warn">⚠️ Bu oy limitdan oshgan: ${over.join(", ")}</div>` : "";
+    if (over.length) $("lim-sec").open = true;
+
+    $("catlist").innerHTML = categories(state.book, "chiqim").map(c => `<option value="${esc(c)}">`).join("");
+  }
+
+  // ---------- Entry sheet ----------
+  function openSheet(kind) {
+    form = {kind, cur: "UZS", cat: null};
+    $("sheet-title").textContent = kind === "kirim" ? "＋ Kirim · " + BOOKS[state.book] : "− Chiqim · " + BOOKS[state.book];
+    $("sheet-title").className = "kindtag " + (kind === "kirim" ? "in" : "out");
+    $("f-amount").value = ""; $("f-custom").value = ""; $("f-note").value = ""; $("f-err").innerHTML = "";
+    $("f-day").value = iso(today()); $("f-preview").textContent = "";
+    document.querySelectorAll("[data-cur]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.cur === "UZS")));
+    $("f-cats").innerHTML = categories(state.book, kind).map(c => `<button type="button" class="chip" data-cat="${esc(c)}" aria-pressed="false">${esc(c)}</button>`).join("");
+    $("sheet").hidden = false;
+    setTimeout(() => $("f-amount").focus(), 50);
+  }
+  const closeSheet = () => { $("sheet").hidden = true; };
+
+  $("btn-out").onclick = () => openSheet("chiqim");
+  $("btn-in").onclick = () => openSheet("kirim");
+  $("sheet-close").onclick = closeSheet;
+  $("sheet").addEventListener("click", e => { if (e.target.id === "sheet") closeSheet(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("sheet").hidden) closeSheet(); });
+
+  $("f-amount").addEventListener("input", () => {
+    const v = parseMoney($("f-amount").value);
+    $("f-preview").textContent = v ? "= " + money(v, form.cur) : "";
+  });
+  document.querySelectorAll("[data-cur]").forEach(b => b.onclick = () => {
+    form.cur = b.dataset.cur;
+    document.querySelectorAll("[data-cur]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    $("f-amount").dispatchEvent(new Event("input"));
+  });
+  $("f-cats").addEventListener("click", e => {
+    const b = e.target.closest("[data-cat]"); if (!b) return;
+    form.cat = b.getAttribute("aria-pressed") === "true" ? null : b.dataset.cat;
+    $("f-cats").querySelectorAll("[data-cat]").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.cat === form.cat)));
+    $("f-custom").value = "";
+  });
+  $("f-custom").addEventListener("input", () => {
+    if ($("f-custom").value.trim()) { form.cat = null; $("f-cats").querySelectorAll("[data-cat]").forEach(x => x.setAttribute("aria-pressed", "false")); }
+  });
+
+  $("entryform").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const amount = parseMoney($("f-amount").value);
+    if (!amount) { $("f-err").innerHTML = `<div class="msg err">Summani tushunmadim. Masalan: 150 000, 200 ming yoki 2 mln.</div>`; $("f-amount").focus(); return; }
+    const category = ($("f-custom").value.trim() || form.cat || DEFAULT_CAT[form.kind]).slice(0, 40);
+    const entry = {book: state.book, kind: form.kind, amount, currency: form.cur, category,
+      note: $("f-note").value.trim().slice(0, 200), day: $("f-day").value || iso(today()), createdAt: Date.now()};
+    entry.id = newId();
+    state.entries.push(entry);
+    if (!save()) { state.entries.pop(); return; }
+    closeSheet(); render();
+    const info = `${entry.kind === "kirim" ? "+" : "−"}${money(amount, entry.currency)} · ${esc(category)}${entry.note ? " · " + esc(entry.note) : ""}`;
+    const lim = state.limits[limitId(state.book, category, entry.currency)];
+    if (entry.kind === "chiqim" && lim) {
+      const spent = monthSpent(state.book, category, entry.currency, entry.day);
+      if (spent > lim.amount) { flash("warn", `✅ Yozildi: ${info}<br>⚠️ ${esc(category)}: bu oy ${money(spent, entry.currency)}, limit ${money(lim.amount, entry.currency)}`, 8000); return; }
+    }
+    flash("ok", `✅ Yozildi: ${info}`);
+  });
+
+  // Delete: first tap asks, second tap deletes
+  $("ledger").addEventListener("click", async e => {
+    const b = e.target.closest("[data-del]"); if (!b) return;
+    if (!b.classList.contains("sure")) {
+      document.querySelectorAll(".del.sure").forEach(x => { x.classList.remove("sure"); x.textContent = "×"; });
+      b.classList.add("sure"); b.textContent = "O'chirish"; return;
+    }
+    const before = state.entries;
+    state.entries = state.entries.filter(x => x.id !== b.dataset.del);
+    if (!save()) { state.entries = before; return; }
+    render(); flash("ok", "O'chirildi.");
+  });
+
+  // ---------- Limits ----------
+  const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "x";
+  const limitId = (book, cat, cur) => `${book}--${cur}--${slug(cat)}-${[...cat.toLowerCase()].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(36)}`;
+  $("limform").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    let cat = $("lim-cat").value.trim().slice(0, 40); const amt = parseMoney($("lim-amt").value), cur = $("lim-cur").value;
+    if (!cat || amt === null) { flash("err", "Kategoriya va summani yozing. Masalan: Reklama — 2 mln."); return; }
+    cat = categories(state.book, "chiqim").find(c => c.toLowerCase() === cat.toLowerCase()) || cat;
+    const id = limitId(state.book, cat, cur);
+    if (amt === 0) delete state.limits[id]; else state.limits[id] = {book: state.book, category: cat, currency: cur, amount: amt};
+    if (!save()) return;
+    render(); flash("ok", amt === 0 ? "Limit o'chirildi." : `Limit saqlandi: ${esc(cat)} — oyiga ${money(amt, cur)}.`);
+    $("lim-cat").value = ""; $("lim-amt").value = "";
+  });
+
+  // ---------- Navigation ----------
+  document.querySelectorAll("[data-book]").forEach(b => b.onclick = () => {
+    state.book = b.dataset.book; try { localStorage.setItem("kassa.book", state.book); } catch (e) {} render();
+  });
+  document.querySelectorAll("[data-period]").forEach(b => b.onclick = () => { state.period = b.dataset.period; state.offset = 0; render(); });
+  $("prev").onclick = () => { state.offset--; render(); };
+  $("next").onclick = () => { if (state.offset < 0) { state.offset++; render(); } };
+
+  // ---------- Nusxa ----------
+  $("bk-save").onclick = async () => {
+    const name = `kassa-nusxa-${iso(today())}.json`;
+    const blob = new Blob([JSON.stringify({app: "elegant-kassa", version: 1, entries: state.entries, limits: state.limits}, null, 1)], {type: "application/json"});
+    const file = new File([blob], name, {type: "application/json"});
+    try {
+      if (navigator.canShare && navigator.canShare({files: [file]})) { await navigator.share({files: [file], title: "Kassa nusxasi"}); flash("ok", "Nusxa tayyor."); return; }
+    } catch (e) { if (e && e.name === "AbortError") return; }
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    flash("ok", `Nusxa yuklab olindi: ${name}`);
+  };
+  $("bk-load").onchange = async () => {
+    const f = $("bk-load").files[0]; $("bk-load").value = ""; if (!f) return;
+    try {
+      const d = JSON.parse(await f.text());
+      if (d.app !== "elegant-kassa" || !Array.isArray(d.entries)) throw new Error("bad");
+      const have = new Set(state.entries.map(e => e.id)); let added = 0;
+      for (const e of d.entries) if (e && e.id && !have.has(e.id) && e.amount > 0) { state.entries.push(e); added++; }
+      Object.assign(state.limits, d.limits || {});
+      if (save()) { render(); flash("ok", `Tiklandi: ${added} ta yozuv qo'shildi.`); }
+    } catch (e) { flash("err", "Bu fayl kassa nusxasi emas. «Nusxa olish» bilan olingan faylni tanlang."); }
+  };
+
+  load();
+  render();
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+})();
+</script>
+</body>
+</html>
