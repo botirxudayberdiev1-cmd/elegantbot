@@ -6,6 +6,7 @@ Zakaz saytda yoziladi; bot xodimlarga karta, montajchiga to'y va mijozga «tayyo
 
 import hashlib
 import hmac
+import json
 import logging
 import time
 from datetime import date
@@ -19,6 +20,7 @@ from .config import ADMIN_IDS, BOT_TOKEN, FIELD_ROLES, ROLES, SITE_PIN, WEB_PORT
 from .db import Database
 from .montaj import client_ready_text, send_to_client, send_to_editor
 from .notify import send_assignment
+from .site import SECTION_TITLE, add_site_routes
 from .utils import escape, fmt_date, fmt_money, normalize_phone, notify_admins, parse_money, parse_time, today
 
 log = logging.getLogger(__name__)
@@ -70,7 +72,7 @@ header{display:flex;justify-content:space-between;align-items:center;gap:12px;fl
 .total .eyebrow{color:inherit;opacity:.75}.total .big{font:500 1.7rem "JetBrains Mono",monospace;line-height:1.1;word-break:break-word}
 .total .side{text-align:right;font-size:.85rem;opacity:.9}
 @media (max-width:480px){.total{grid-template-columns:1fr}.total .side{text-align:left}.total .big{font-size:1.5rem}}
-.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px}
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px}
 .tabs a{display:block;text-align:center;padding:10px 4px;border-radius:9px;font-weight:600;color:var(--muted);text-decoration:none;font-size:.92rem}
 .tabs a[aria-current]{background:var(--accent-soft);color:var(--accent)}
 .row{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
@@ -278,6 +280,8 @@ async def index(request: web.Request) -> web.Response:
               and min(e["date"] for e in o["events"]) < iso and o not in upcoming]
     montaj.sort(key=lambda o: min(e["date"] for e in o["events"]))
     debts = sorted((o for o in orders if o["total"] - o["paid"] > 0), key=lambda o: o["paid"] - o["total"])
+    requests = await db.site_requests()
+    fresh = sum(1 for r in requests if r["status"] == "yangi")
 
     if tab == "debts":
         summary = (f'<div><div class="eyebrow">Jami qolgan qarz</div>'
@@ -285,6 +289,11 @@ async def index(request: web.Request) -> web.Response:
                    f'<div class="side">{len(debts)} nafar qarzdor<br>'
                    f'To\'langan: {fmt_money(sum(o["paid"] for o in orders))}</div>')
         items = "".join(order_card(o, editors, username, True) for o in debts) or '<div class="empty">Qarzdor yo\'q 🎉</div>'
+    elif tab == "sorov":
+        summary = (f'<div><div class="eyebrow">Saytdan kelgan so&#39;rovlar</div>'
+                   f'<div class="big">{fresh} ta yangi</div></div>'
+                   f'<div class="side">Ochiq sayt: <a href="/sayt" target="_blank" style="color:inherit">/sayt</a></div>')
+        items = "".join(request_card(r) for r in requests) or "<div class=\"empty\">Hozircha so'rov yo'q</div>"
     elif tab == "montaj":
         waiting = sum(1 for o in montaj if not o["editor_id"])
         summary = (f'<div><div class="eyebrow">Topshirilmagan to\'ylar</div>'
@@ -321,11 +330,51 @@ async def index(request: web.Request) -> web.Response:
   <nav class="tabs">
     <a href="/?tab=orders"{cur if tab == 'orders' else ''}>Zakazlar · {len(upcoming)}</a>
     <a href="/?tab=montaj"{cur if tab == 'montaj' else ''}>Montaj · {len(montaj)}</a>
-    <a href="/?tab=debts"{cur if tab == 'debts' else ''}>Qarzdorlar · {len(debts)}</a></nav>
+    <a href="/?tab=debts"{cur if tab == 'debts' else ''}>Qarzdorlar · {len(debts)}</a>
+    <a href="/?tab=sorov"{cur if tab == 'sorov' else ''}>So'rovlar{' · ' + str(fresh) if fresh else ''}</a></nav>
   <section class="total">{summary}</section>
   {msg_html}
   {items}
 </div>""")
+
+
+def request_card(r) -> str:
+    """Saytdan kelgan so'rov: tanlovlar rasmlari, paket, tadbirlar; «Qabul qildim» va «Zakaz yozish»."""
+    d = json.loads(r["data"])
+    title = "Buyurtma" if r["kind"] == "buyurtma" else "Tanlov"
+    status = (f'<span class="pill ok">✅ {escape(r["taken_by"] or "")}</span>' if r["status"] == "qabul"
+              else '<span class="pill">Yangi</span>')
+    lines = []
+    if d.get("package"):
+        lines.append(f'📦 <b>{escape(d["package"])}</b>' + (f' + {escape(", ".join(d["addons"]))}' if d.get("addons") else ""))
+    for e in d.get("events", []):
+        lines.append(f'🎉 {escape(e.get("type") or "Tadbir")} · {fmt_date(e["date"]) if e.get("date") else "—"} '
+                     f'{escape(e.get("time") or "")} {("· " + escape(e["address"])) if e.get("address") else ""}')
+    if d.get("date") and not d.get("events"):
+        lines.append(f'📅 {fmt_date(d["date"])}')
+    if d.get("note"):
+        lines.append(f'📝 {escape(d["note"])}')
+    thumbs = "".join(
+        f'<a href="{attr(i["src"])}" target="_blank" title="{attr(i["title"])}">'
+        f'<img src="{attr(i["src"])}" alt="{attr(i["title"])}" loading="lazy" '
+        f'style="width:64px;height:64px;object-fit:cover;border-radius:8px"></a>'
+        if i["src"].startswith("/sayt/media/") and i["src"].rsplit(".", 1)[-1].lower() in ("jpg", "jpeg", "png", "webp", "gif")
+        else f'<span class="pill grey">{SECTION_TITLE.get(i["section"], "")}: {escape(i["title"])}</span>'
+        for i in d.get("items", []))
+    prefill = urlencode({"name": r["name"], "phone": r["phone"], "note": d.get("note") or ""})
+    take = ("" if r["status"] == "qabul" else
+            f'<form method="post" action="/sorov"><input type="hidden" name="id" value="{r["id"]}">'
+            f'<button class="okbtn" type="submit">✅ Qabul qildim</button></form>')
+    return f"""
+<article class="row">
+  <div class="top"><div><div class="name">№{r["id"]} {escape(r["name"])} · {title}</div>
+    <div class="meta">{escape(r["phone"])}{(" · " + escape(d["telegram"])) if d.get("telegram") else ""} · {escape(r["created_at"][:16])}</div></div>
+    <div>{status}</div></div>
+  {"".join(f'<div class="ev">{l}</div>' for l in lines)}
+  {f'<div class="actions">{thumbs}</div>' if thumbs else ""}
+  <div class="actions">{take}<a class="btn" href="/new?{attr(prefill)}">📝 Zakaz yozish</a>
+    <a class="btn" href="tel:{attr(r["phone"])}">📞 Qo'ng'iroq</a></div>
+</article>"""
 
 
 # ---------- Yangi zakaz ----------
@@ -406,7 +455,8 @@ async def form_page(request: web.Request, values: dict | None = None, errors: li
 async def new_form(request: web.Request) -> web.Response:
     if not _authed(request):
         raise web.HTTPSeeOther("/")
-    return await form_page(request)
+    q = request.query  # saytdagi so'rovdan «Zakaz yozish» bosilganda ism/telefon tayyor keladi
+    return await form_page(request, {k: q.get(k, "") for k in ("name", "phone", "note")})
 
 
 async def new_save(request: web.Request) -> web.Response:
@@ -580,6 +630,21 @@ async def stage(request: web.Request) -> web.Response:
 
 # ---------- Kirish ----------
 
+async def take_request(request: web.Request) -> web.Response:
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    db: Database = request.app["db"]
+    try:
+        req_id = int((await request.post()).get("id", 0))
+    except ValueError:
+        raise _back("sorov")
+    if await db.site_request_take(req_id, "Sayt (admin)"):
+        r = await db.site_request_get(req_id)
+        await notify_admins(request.app["bot"], db,
+                            f"✅ So'rov №{req_id} ({escape(r['name'])}) saytda qabul qilindi.")
+    raise _back("sorov")
+
+
 async def login(request: web.Request) -> web.Response:
     ip = _ip(request)
     if _blocked(ip):
@@ -612,7 +677,9 @@ def build_app(bot: Bot, db: Database, bot_username: str) -> web.Application:
         web.get("/", index), web.get("/new", new_form), web.post("/new", new_save),
         web.post("/login", login), web.post("/logout", logout), web.post("/pay", pay),
         web.post("/editor", set_editor), web.post("/stage", stage), web.get("/health", health),
+        web.post("/sorov", take_request),
     ])
+    add_site_routes(app)
     return app
 
 

@@ -112,6 +112,19 @@ CREATE TABLE IF NOT EXISTS fsm (
     data  TEXT
 );
 
+-- Ochiq saytdan kelgan so'rovlar (tanlangan dekor/taklifnoma/albom yoki paketli buyurtma)
+CREATE TABLE IF NOT EXISTS site_requests (
+    id         INTEGER PRIMARY KEY,
+    kind       TEXT NOT NULL,                  -- 'tanlov' yoki 'buyurtma'
+    name       TEXT NOT NULL,
+    phone      TEXT NOT NULL,
+    data       TEXT NOT NULL,                  -- JSON: tanlovlar, paket, tadbirlar, izoh
+    status     TEXT NOT NULL DEFAULT 'yangi',  -- 'yangi' yoki 'qabul'
+    taken_by   TEXT,
+    taken_at   TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_events_date ON events(date);
 CREATE INDEX IF NOT EXISTS idx_assignments_staff ON assignments(staff_id);
 CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id);
@@ -535,3 +548,31 @@ class Database:
             (status, asg_id),
         )
         await self.conn.commit()
+
+    # ---------- Saytdan kelgan so'rovlar ----------
+
+    async def site_request_add(self, kind: str, name: str, phone: str, data: str) -> int:
+        cur = await self.conn.execute(
+            "INSERT INTO site_requests (kind, name, phone, data) VALUES (?, ?, ?, ?)",
+            (kind, name, phone, data),
+        )
+        await self.conn.commit()
+        return cur.lastrowid
+
+    async def site_requests(self, limit: int = 50):
+        return await self._all(
+            "SELECT * FROM site_requests ORDER BY status = 'qabul', id DESC LIMIT ?", (limit,)
+        )
+
+    async def site_request_get(self, req_id: int):
+        return await self._one("SELECT * FROM site_requests WHERE id = ?", (req_id,))
+
+    async def site_request_take(self, req_id: int, who: str) -> bool:
+        """Birinchi qabul qilgan yutadi; allaqachon olingan bo'lsa False."""
+        cur = await self.conn.execute(
+            "UPDATE site_requests SET status = 'qabul', taken_by = ?, taken_at = datetime('now', 'localtime') "
+            "WHERE id = ? AND status = 'yangi'",
+            (who, req_id),
+        )
+        await self.conn.commit()
+        return cur.rowcount > 0
