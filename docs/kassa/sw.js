@@ -1,5 +1,5 @@
 // Kassa internetsiz ham ochilsin: sahifa fayllari telefonda saqlanadi, internet bo'lsa yangisi olinadi.
-const CACHE = "kassa-v1";
+const CACHE = "kassa-v2";
 const FILES = ["./", "index.html", "manifest.json", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", e => {
@@ -13,7 +13,7 @@ self.addEventListener("activate", e => {
 });
 
 self.addEventListener("fetch", e => {
-  if (e.request.method !== "GET") return;
+  if (e.request.method !== "GET" || new URL(e.request.url).pathname.startsWith("/api/")) return;  // ma'lumot har doim serverdan
   e.respondWith(
     fetch(e.request)
       .then(res => {

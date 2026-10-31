@@ -22,6 +22,7 @@ from .cash import BOOKS, CATEGORIES, CURRENCIES, DEFAULT_CATEGORY, PERIODS, fmt_
 from .config import ADMIN_IDS, BOT_TOKEN, FIELD_ROLES, ORDER_CATEGORY, ROLES, SITE_PIN, WEB_PORT
 from .db import Database
 from .montaj import client_ready_text, send_to_client, send_to_editor
+from .kassa_api import add_kassa_routes
 from .notify import send_assignment
 from .site import IMAGE_EXT, MEDIA, SECTION_TITLE, VIDEO_EXT, add_site_routes, load_settings, save_settings
 from .utils import escape, fmt_date, fmt_money, normalize_phone, notify_admins, parse_money, parse_time, today
@@ -158,12 +159,13 @@ def attr(value) -> str:
     return escape(value or "").replace('"', "&quot;")
 
 
-def login_page(error: str = "") -> web.Response:
+def login_page(error: str = "", nxt: str = "/") -> web.Response:
     err = f'<div class="msg err">{escape(error)}</div>' if error else ""
     return page("Kirish", f"""
 <form class="login" method="post" action="/login">
   <div class="eyebrow">Elegant Media</div><h1>Kirish</h1>{err}
   <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="PIN-kod" required autofocus>
+  <input type="hidden" name="next" value="{attr(nxt)}">
   <button class="primary" type="submit">Kirish</button>
 </form>""")
 
@@ -356,7 +358,7 @@ async def index(request: web.Request) -> web.Response:
   <header><h1>Elegant Media</h1>
     <form method="post" action="/logout"><button class="linkbtn" type="submit">Chiqish</button></form></header>
   <div class="bigbtns"><a class="btn primary" href="/new">➕ Yangi zakaz</a>
-    <a class="btn" href="/cash">💰 Kirim-chiqim</a>
+    <a class="btn" href="/kassa/">💰 Kassa</a>
     <a class="btn" href="/media" style="grid-column:1/-1">🖼 Sayt: rasm, video, kontaktlar</a></div>
   <nav class="tabs">
     <a href="/?tab=orders"{cur if tab == 'orders' else ''}>Zakazlar · {len(upcoming)}</a>
@@ -1119,11 +1121,13 @@ async def login(request: web.Request) -> web.Response:
     ip = _ip(request)
     if _blocked(ip):
         return login_page("Ko'p marta xato kiritildi. 5 daqiqadan keyin urinib ko'ring.")
-    pin = (await request.post()).get("pin", "")
+    form = await request.post()
+    pin = form.get("pin", "")
+    nxt = "/kassa/" if form.get("next") == "/kassa/" else "/"  # Kassa ilovasidan kirilsa, o'shanga qaytadi
     if not SITE_PIN or not hmac.compare_digest(str(pin), SITE_PIN):
         _fails.setdefault(ip, []).append(time.time())
-        return login_page("PIN-kod noto'g'ri.")
-    resp = web.HTTPSeeOther("/")
+        return login_page("PIN-kod noto'g'ri.", nxt)
+    resp = web.HTTPSeeOther(nxt)
     resp.set_cookie(COOKIE, _token(), max_age=30 * 24 * 3600, httponly=True,
                     secure=request.secure or request.headers.get("X-Forwarded-Proto") == "https",
                     samesite="Strict")
@@ -1154,6 +1158,7 @@ def build_app(bot: Bot, db: Database, bot_username: str) -> web.Application:
         web.post("/cash/del", cash_del), web.post("/cash/limit", cash_limit),
     ])
     add_site_routes(app)
+    add_kassa_routes(app, _authed)
     return app
 
 

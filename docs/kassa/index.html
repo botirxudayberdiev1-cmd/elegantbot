@@ -108,6 +108,15 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
 <body>
 <div class="wrap" id="app">
   <header><h1>Elegant Kassa</h1><span class="small muted" id="sync">📱 Telefonda saqlanadi</span></header>
+  <nav class="small" id="links" hidden style="display:flex;gap:14px;flex-wrap:wrap">
+    <a href="/">📋 Zakazlar</a><a href="/?tab=debts">💰 Qarzdorlar</a><a href="/?tab=sorov">🌐 So'rovlar</a><a href="/sayt" target="_blank">Sayt ↗</a></nav>
+  <form id="pinbox" method="post" action="/login" hidden style="display:flex;flex-direction:column;gap:10px">
+    <div class="msg warn">Bot bazasiga ulanish uchun PIN-kodni kiriting (admin saytdagi PIN).</div>
+    <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="PIN-kod" required>
+    <input type="hidden" name="next" value="/kassa/">
+    <button class="btn primary" type="submit">Kirish</button>
+  </form>
+  <div id="importbox"></div>
   <div class="seg" role="group" aria-label="Hisob">
     <button type="button" data-book="biznes" aria-pressed="true">Studiya</button>
     <button type="button" data-book="shaxsiy" aria-pressed="false">Shaxsiy</button>
@@ -206,6 +215,42 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
   }
   const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
+  // Bot bilan bir manzildan ochilsa (/kassa/) — yozuvlar bot bazasida; GitHub Pages'da — telefonda.
+  const server = {on: false, orderCat: "Zakaz to'lovi"};
+  async function api(path, body) {
+    const r = await fetch("/api/kassa" + path, body === undefined ? {credentials: "same-origin"} :
+      {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    let d = {}; try { d = await r.json(); } catch (e) {}
+    if (!r.ok) throw Object.assign(new Error(d.error || "Server bilan aloqa yo'q."), {status: r.status});
+    return d;
+  }
+  async function loadServer() {
+    const d = await api("");
+    server.orderCat = d.orderCategory || server.orderCat;
+    state.entries = d.entries.map((e, i) => ({...e, createdAt: parseInt(e.id.slice(1), 10) || i}));
+    state.limits = {};
+    for (const l of Object.values(d.limits || {})) state.limits[limitId(l.book, l.category, l.currency)] = l;
+    state.loaded = true;
+  }
+  function localEntries() {
+    try { const d = JSON.parse(localStorage.getItem(KEY) || "{}"); return {entries: d.entries || [], limits: d.limits || {}}; }
+    catch (e) { return {entries: [], limits: {}}; }
+  }
+  function showImport() {
+    const loc = localEntries();
+    $("importbox").innerHTML = loc.entries.length ? `<div class="msg warn">📲 Bu telefonda bazaga o'tmagan ${loc.entries.length} ta yozuv bor.
+      <button type="button" class="btn primary" id="do-import" style="margin-top:8px;width:100%">Bot bazasiga ko'chirish</button></div>` : "";
+    const b = $("do-import"); if (!b) return;
+    b.onclick = async () => {
+      b.disabled = true; b.textContent = "Ko'chirilmoqda…";
+      try {
+        const r = await api("/import", loc);
+        try { localStorage.setItem(KEY + "-kochirildi", localStorage.getItem(KEY)); localStorage.removeItem(KEY); } catch (e) {}
+        await loadServer(); render(); showImport(); flash("ok", `✅ ${r.added} ta yozuv bot bazasiga ko'chirildi.`);
+      } catch (e) { b.disabled = false; b.textContent = "Bot bazasiga ko'chirish"; flash("err", esc(e.message)); }
+    };
+  }
+
   try { const b = localStorage.getItem("kassa.book"); if (b in BOOKS) state.book = b; } catch (e) {}
 
   // ---------- Helpers ----------
@@ -257,7 +302,7 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
     const base = CATS[`${book}:${kind}`].slice();
     const known = new Set(base.map(c => c.toLowerCase()));
     const counts = {};
-    for (const e of state.entries) if (e.book === book && e.kind === kind && !known.has(e.category.toLowerCase()))
+    for (const e of state.entries) if (e.book === book && e.kind === kind && e.src !== "order" && !known.has(e.category.toLowerCase()))
       counts[e.category] = (counts[e.category] || 0) + 1;
     const extra = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
     base.splice(base.length - 1, 0, ...extra);
@@ -312,7 +357,7 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
         const sign = e.kind === "kirim" ? "+" : "−", cls = e.kind === "kirim" ? "in" : "out";
         html += `<div class="line"><div><div class="cat">${esc(e.category)}</div>${e.note ? `<div class="note">${esc(e.note)}</div>` : ""}</div>
           <div class="amt ${cls}">${sign}${money(e.amount, e.currency)}</div>
-          <button type="button" class="del" data-del="${esc(e.id)}" aria-label="O'chirish">×</button></div>`;
+          ${e.src === "order" ? `<span class="small muted" title="Zakazlar bo'limidan">📋</span>` : `<button type="button" class="del" data-del="${esc(e.id)}" aria-label="O'chirish">×</button>`}</div>`;
       }
       $("ledger").innerHTML = `<div class="card">${html}</div>`;
     }
@@ -387,10 +432,20 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
     const category = ($("f-custom").value.trim() || form.cat || DEFAULT_CAT[form.kind]).slice(0, 40);
     const entry = {book: state.book, kind: form.kind, amount, currency: form.cur, category,
       note: $("f-note").value.trim().slice(0, 200), day: $("f-day").value || iso(today()), createdAt: Date.now()};
-    entry.id = newId();
-    state.entries.push(entry);
-    if (!save()) { state.entries.pop(); return; }
+    let serverWarn = "";
+    if (server.on) {
+      $("f-save").disabled = true;
+      try { const saved = await api("/add", entry); serverWarn = saved.warn || ""; entry.id = saved.id; entry.src = "cash"; entry.category = saved.category; }
+      catch (e) { $("f-err").innerHTML = `<div class="msg err">${esc(e.message)}</div>`; return; }
+      finally { $("f-save").disabled = false; }
+      state.entries.push(entry);
+    } else {
+      entry.id = newId();
+      state.entries.push(entry);
+      if (!save()) { state.entries.pop(); return; }
+    }
     closeSheet(); render();
+    if (serverWarn) { flash("warn", `✅ Yozildi: ${entry.kind === "kirim" ? "+" : "−"}${money(amount, entry.currency)} · ${esc(category)}<br>⚠️ ${esc(serverWarn)}`, 8000); return; }
     const info = `${entry.kind === "kirim" ? "+" : "−"}${money(amount, entry.currency)} · ${esc(category)}${entry.note ? " · " + esc(entry.note) : ""}`;
     const lim = state.limits[limitId(state.book, category, entry.currency)];
     if (entry.kind === "chiqim" && lim) {
@@ -408,8 +463,13 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
       b.classList.add("sure"); b.textContent = "O'chirish"; return;
     }
     const before = state.entries;
-    state.entries = state.entries.filter(x => x.id !== b.dataset.del);
-    if (!save()) { state.entries = before; return; }
+    if (server.on) {
+      try { await api("/del", {id: b.dataset.del}); } catch (err) { flash("err", esc(err.message)); return; }
+      state.entries = state.entries.filter(x => x.id !== b.dataset.del);
+    } else {
+      state.entries = state.entries.filter(x => x.id !== b.dataset.del);
+      if (!save()) { state.entries = before; return; }
+    }
     render(); flash("ok", "O'chirildi.");
   });
 
@@ -422,8 +482,13 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
     if (!cat || amt === null) { flash("err", "Kategoriya va summani yozing. Masalan: Reklama — 2 mln."); return; }
     cat = categories(state.book, "chiqim").find(c => c.toLowerCase() === cat.toLowerCase()) || cat;
     const id = limitId(state.book, cat, cur);
-    if (amt === 0) delete state.limits[id]; else state.limits[id] = {book: state.book, category: cat, currency: cur, amount: amt};
-    if (!save()) return;
+    if (server.on) {
+      try { await api("/limit", {book: state.book, category: cat, currency: cur, amount: amt}); } catch (e) { flash("err", esc(e.message)); return; }
+      if (amt === 0) delete state.limits[id]; else state.limits[id] = {book: state.book, category: cat, currency: cur, amount: amt};
+    } else {
+      if (amt === 0) delete state.limits[id]; else state.limits[id] = {book: state.book, category: cat, currency: cur, amount: amt};
+      if (!save()) return;
+    }
     render(); flash("ok", amt === 0 ? "Limit o'chirildi." : `Limit saqlandi: ${esc(cat)} — oyiga ${money(amt, cur)}.`);
     $("lim-cat").value = ""; $("lim-amt").value = "";
   });
@@ -453,6 +518,10 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
     try {
       const d = JSON.parse(await f.text());
       if (d.app !== "elegant-kassa" || !Array.isArray(d.entries)) throw new Error("bad");
+      if (server.on) {
+        const r = await api("/import", {entries: d.entries, limits: d.limits || {}});
+        await loadServer(); render(); flash("ok", `Tiklandi: ${r.added} ta yozuv bot bazasiga qo'shildi.`); return;
+      }
       const have = new Set(state.entries.map(e => e.id)); let added = 0;
       for (const e of d.entries) if (e && e.id && !have.has(e.id) && e.amount > 0) { state.entries.push(e); added++; }
       Object.assign(state.limits, d.limits || {});
@@ -460,8 +529,25 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
     } catch (e) { flash("err", "Bu fayl kassa nusxasi emas. «Nusxa olish» bilan olingan faylni tanlang."); }
   };
 
-  load();
-  render();
+  async function start() {
+    try {
+      await loadServer();
+      server.on = true;
+      $("sync").textContent = "🔗 Bot bazasida";
+      $("links").hidden = false;
+      $("bk-info").textContent = "Yozuvlar bot bazasida saqlanadi: kompyuter va telefonda bir xil. Zakaz to'lovlari Studiya kirimida o'zi chiqadi. Qo'shimcha nusxa uchun faylga saqlab qo'yishingiz mumkin.";
+      showImport();
+    } catch (e) {
+      if (e.status === 401) {  // bot manzili, lekin PIN kiritilmagan
+        $("pinbox").hidden = false;
+        $("sync").textContent = "🔒 Kirish kerak";
+        state.loaded = true; render(); return;
+      }
+      load();  // GitHub Pages yoki internet yo'q — telefon xotirasi
+    }
+    render();
+  }
+  start();
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();

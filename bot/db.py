@@ -175,6 +175,7 @@ class Database:
         await self.conn.executescript(SCHEMA)
         await self._migrate_staff_roles()
         await self._add_missing_columns("events", EVENT_NEW_COLUMNS)
+        await self._add_missing_columns("cash", {"ext_id": "TEXT"})  # Kassa ilovasidan ko'chirilgan yozuv ID
         await self.conn.execute("PRAGMA foreign_keys = ON")
         async with self.conn.execute("SELECT COUNT(*) FROM event_types") as cur:
             (count,) = await cur.fetchone()
@@ -540,13 +541,17 @@ class Database:
     # ---------- Kirim-chiqim ----------
 
     async def cash_add(self, book: str, kind: str, amount: int, currency: str, category: str,
-                       note: str | None, day: str) -> int:
+                       note: str | None, day: str, ext_id: str | None = None) -> int:
         cur = await self.conn.execute(
-            "INSERT INTO cash (book, kind, amount, currency, category, note, day) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (book, kind, amount, currency, category, note, day),
+            "INSERT INTO cash (book, kind, amount, currency, category, note, day, ext_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (book, kind, amount, currency, category, note, day, ext_id),
         )
         await self.conn.commit()
         return cur.lastrowid
+
+    async def cash_ext_ids(self) -> set[str]:
+        return {r["ext_id"] for r in await self._all("SELECT ext_id FROM cash WHERE ext_id IS NOT NULL")}
 
     async def cash_delete(self, entry_id: int) -> None:
         await self.conn.execute("DELETE FROM cash WHERE id = ?", (entry_id,))
