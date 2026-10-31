@@ -46,8 +46,10 @@ def take_kb(req_id: int) -> InlineKeyboardMarkup:
 
 
 def load_settings() -> dict:
+    # Render diski hali bo'sh bo'lsa — repozitoriydagi sozlamalar (telefon va h.k.)
+    path = SETTINGS if SETTINGS.is_file() else ROOT / "media" / "sozlamalar.json"
     try:
-        data = json.loads(SETTINGS.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         data = {}
     return {k: str(data.get(k) or "") for k in SETTING_KEYS}
