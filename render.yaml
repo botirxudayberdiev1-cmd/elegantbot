@@ -1,0 +1,26 @@
+# Render: bot + sayt bitta servisda, 24/7. Baza diskda saqlanadi (o'chib ketmaydi).
+services:
+  - type: web
+    name: elegantbot
+    runtime: python
+    plan: starter
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m bot
+    healthCheckPath: /health
+    autoDeploy: true
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: SITE_PIN
+        sync: false
+      - key: DB_PATH
+        value: /data/bot.db
+      - key: TIMEZONE
+        value: Asia/Tashkent

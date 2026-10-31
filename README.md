@@ -13,6 +13,29 @@ Kutubxonalarni qaytadan o'rnatish kerak bo'lsa: `.venv\Scripts\python -m pip ins
 
 Saytni kompyuterda ko'rish: `.env` ga `SITE_PIN=...` va `WEB_PORT=8080` yozing, keyin http://localhost:8080
 
+## Kirim-chiqim (saytda)
+
+Saytda «💰 Kirim-chiqim» tugmasi: **Studiya** va **Shaxsiy** hisob alohida, so'm va $ alohida.
+- Katta «➖ Chiqim» / «➕ Kirim» tugmalari: summa → nimaga (tayyor ro'yxat yoki o'zingiz yozasiz) → Saqlash.
+- Zakaz to'lovlari Studiya kirimiga o'zi tushadi.
+- Bugun / hafta / oy: kirim, chiqim, qoldiq.
+- Oylik limit: kategoriya limitdan oshsa saytda va botda ogohlantiradi.
+
+## Render'ga qo'yish (24/7)
+
+1. render.com → **Get Started** → GitHub bilan kirish.
+2. **New + → Blueprint** → **elegantbot** repozitoriysini tanlang (`render.yaml` o'zi o'qiladi).
+3. So'ralgan qiymatlarni yozing:
+   - `BOT_TOKEN` — @BotFather tokeni
+   - `ADMIN_IDS` — sizning Telegram ID'ingiz
+   - `SITE_PIN` — sayt uchun PIN-kod (kamida 6 ta raqam)
+4. **Apply** → karta ma'lumotlarini kiriting (Starter tarif + 1 GB disk).
+5. Tayyor bo'lgach, sayt manzili yuqorida chiqadi: `https://elegantbot-….onrender.com`.
+6. Kompyuterdagi botni to'xtating (`start_bot.cmd` oynasini yoping): ikkita bot bir vaqtda ishlamaydi.
+
+Bazani ko'chirish: kompyuterdagi botga `/backup` yozing → kelgan faylni Render'dagi botga
+«/restore» izohi bilan yuboring. Render botni avtomatik qayta yoqadi.
+
 ## Railway'ga qo'yish (24/7)
 
 1. railway.com → GitHub bilan kirish → **New Project → Deploy from GitHub repo → elegantbot**.
