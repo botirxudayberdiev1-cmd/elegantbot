@@ -8,7 +8,9 @@ import json
 import logging
 import time
 from datetime import date
+from html import escape as html_escape
 from pathlib import Path
+from urllib.parse import quote
 
 from aiogram import Bot
 from aiogram.filters.callback_data import CallbackData
@@ -85,8 +87,33 @@ def _items(section: str) -> list[dict]:
     return items
 
 
+def _preview_image() -> str:
+    """Havola oldindan ko'rinishi uchun rasm: bosh rasm, bo'lmasa dekor/albom/studiyadan birinchisi."""
+    for f in sorted(MEDIA.glob("hero.*")):
+        if f.suffix.lower() in IMAGE_EXT:
+            return f"/sayt/media/{f.name}"
+    for section in ("dekorlar", "albomlar", "studiya", "taklifnomalar"):
+        image = next((i["src"] for i in _items(section) if i["type"] == "image"), "")
+        if image:
+            return image
+    return ""
+
+
 async def site_index(request: web.Request) -> web.Response:
-    return web.FileResponse(ROOT / "index.html", headers={"Cache-Control": "no-cache"})
+    # Telegram/Instagram'da havola chiroyli ko'rinishi uchun Open Graph teglari qo'shiladi
+    proto = request.headers.get("X-Forwarded-Proto", request.scheme)
+    origin = f"{proto}://{request.host}"
+    tags = {"og:type": "website", "og:site_name": "Elegant Media",
+            "og:title": "Elegant Media — to'y videosi, foto, dekor",
+            "og:description": "Roliklar, dekorlar, taklifnomalar va albomlar. Paketni tanlang va sanangizni band qiling.",
+            "og:url": f"{origin}/sayt"}
+    image = _preview_image()
+    if image:
+        tags["og:image"] = origin + quote(image)
+    og = "\n".join(f'<meta property="{k}" content="{html_escape(v)}">' for k, v in tags.items())
+    og += '\n<meta name="twitter:card" content="summary_large_image">'
+    html = (ROOT / "index.html").read_text(encoding="utf-8").replace("<!--OG-->", og, 1)
+    return web.Response(text=html, content_type="text/html", headers={"Cache-Control": "no-cache"})
 
 
 async def gallery(request: web.Request) -> web.Response:
