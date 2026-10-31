@@ -1,4 +1,4 @@
-Saytdagi rasm va videolar shu papkalardan olinadi. Faylni tashlasangiz, sayt uni o'zi ko'rsatadi
+Saytdagi rasm va videolar shu papkalardan olinadi. Eng oson yo'li: admin saytda «🖼 Sayt» bo'limidan yuklash.
 (botni qayta ishga tushirish shart emas).
 
   roliklar/       — to'y roliklari (.mp4) yoki havolalar.txt: har qatorda «Sarlavha | https://youtu.be/...»

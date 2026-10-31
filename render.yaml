@@ -24,3 +24,5 @@ services:
         value: /data/bot.db
       - key: TIMEZONE
         value: Asia/Tashkent
+      - key: SITE_MEDIA
+        value: /data/media

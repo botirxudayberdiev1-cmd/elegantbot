@@ -8,8 +8,10 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 from datetime import date
+from pathlib import Path
 from urllib.parse import urlencode
 
 from aiogram import Bot
@@ -21,7 +23,7 @@ from .config import ADMIN_IDS, BOT_TOKEN, FIELD_ROLES, ORDER_CATEGORY, ROLES, SI
 from .db import Database
 from .montaj import client_ready_text, send_to_client, send_to_editor
 from .notify import send_assignment
-from .site import SECTION_TITLE, add_site_routes
+from .site import IMAGE_EXT, MEDIA, SECTION_TITLE, VIDEO_EXT, add_site_routes, load_settings, save_settings
 from .utils import escape, fmt_date, fmt_money, normalize_phone, notify_admins, parse_money, parse_time, today
 
 log = logging.getLogger(__name__)
@@ -354,7 +356,8 @@ async def index(request: web.Request) -> web.Response:
   <header><h1>Elegant Media</h1>
     <form method="post" action="/logout"><button class="linkbtn" type="submit">Chiqish</button></form></header>
   <div class="bigbtns"><a class="btn primary" href="/new">➕ Yangi zakaz</a>
-    <a class="btn" href="/cash">💰 Kirim-chiqim</a></div>
+    <a class="btn" href="/cash">💰 Kirim-chiqim</a>
+    <a class="btn" href="/media" style="grid-column:1/-1">🖼 Sayt: rasm, video, kontaktlar</a></div>
   <nav class="tabs">
     <a href="/?tab=orders"{cur if tab == 'orders' else ''}>Zakazlar · {len(upcoming)}</a>
     <a href="/?tab=montaj"{cur if tab == 'montaj' else ''}>Montaj · {len(montaj)}</a>
@@ -938,6 +941,180 @@ async def take_request(request: web.Request) -> web.Response:
     raise _back("sorov")
 
 
+# ---------- Ochiq sayt: rasm/video va kontaktlar ----------
+
+MEDIA_TABS = {"dekorlar": "Dekorlar", "taklifnomalar": "Taklifnomalar", "albomlar": "Albomlar",
+              "roliklar": "Roliklar", "studiya": "Studiya", "jamoa": "Jamoa", "bosh": "Bosh video",
+              "sozlamalar": "Kontaktlar"}
+MEDIA_HINT = {
+    "jamoa": "Rasm nomi yoki sarlavha: «Ism - lavozim», masalan «Orif Rahmatov - operator».",
+    "bosh": "Bosh sahifadagi katta fon: bitta video (.mp4) yoki rasm. Yangisi eskisini almashtiradi.",
+    "roliklar": "Video fayl yuklang yoki pastda YouTube havolalarini yozing.",
+}
+MAX_UPLOAD = 300 * 1024 * 1024  # bitta fayl: 300 MB
+BAD_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+SETTING_LABELS = {"telefon": ("Telefon", "+998 91 943 76 76"), "telegram": ("Telegram", "@elegantmedia"),
+                  "instagram": ("Instagram", "elegant.media"), "youtube": ("YouTube kanal havolasi", "https://youtube.com/@..."),
+                  "manzil": ("Manzil", "Toshkent, ..."), "xarita": ("Xarita havolasi", "https://maps.app.goo.gl/..."),
+                  "ish_vaqti": ("Ish vaqti", "Har kuni 09:00–21:00")}
+MEDIA_FLASH = {"up": ("", "✅ Yuklandi — saytda ko'rinadi."), "del": ("", "🗑 O'chirildi."), "set": ("", "✅ Saqlandi."),
+               "bad": ("err", "Fayl rasm yoki video emas yoki juda katta (300 MB dan ko'p).")}
+
+
+def _media_folder(section: str) -> Path:
+    return MEDIA if section == "bosh" else MEDIA / section
+
+
+def _media_files(section: str) -> list[Path]:
+    folder = _media_folder(section)
+    if not folder.is_dir():
+        return []
+    files = [f for f in sorted(folder.iterdir()) if f.suffix.lower() in IMAGE_EXT | VIDEO_EXT]
+    return [f for f in files if f.stem == "hero"] if section == "bosh" else files
+
+
+def _media_card(section: str, f: Path) -> str:
+    src = attr(f"/sayt/media/{'' if section == 'bosh' else section + '/'}{f.name}")
+    style = "width:100%;border-radius:8px;aspect-ratio:4/3;object-fit:cover;background:#000"
+    preview = (f'<video src="{src}" muted preload="metadata" style="{style}"></video>' if f.suffix.lower() in VIDEO_EXT
+               else f'<img src="{src}" alt="" loading="lazy" style="{style}">')
+    return (f'<div class="row" style="padding:8px;gap:6px">{preview}'
+            f'<div class="meta" style="color:var(--ink)">{escape(f.stem)}</div>'
+            f'<form method="post" action="/media/del"><input type="hidden" name="s" value="{section}">'
+            f'<input type="hidden" name="f" value="{attr(f.name)}">'
+            f"<button type=\"submit\" style=\"width:100%\">🗑 O'chirish</button></form></div>")
+
+
+async def media_page(request: web.Request) -> web.Response:
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    sec = request.query.get("s", "dekorlar")
+    sec = sec if sec in MEDIA_TABS else "dekorlar"
+    tabs = "".join(f'<label class="chip"><input type="radio"{" checked" if k == sec else ""} '
+                   f'onclick="location=\'/media?s={k}\'"><span>{v}</span></label>' for k, v in MEDIA_TABS.items())
+    flash = MEDIA_FLASH.get(request.query.get("m", ""))
+    msg = f'<div class="msg {flash[0]}">{flash[1]}</div>' if flash else ""
+    if sec == "sozlamalar":
+        st = load_settings()
+        fields = "".join(f'<label>{lab}<input name="{k}" value="{attr(st[k])}" placeholder="{attr(ph)}"></label>'
+                         for k, (lab, ph) in SETTING_LABELS.items())
+        body = (f'<form class="card" method="post" action="/media/settings"><fieldset><legend>Saytdagi kontaktlar</legend>'
+                f'{fields}</fieldset><button class="primary" type="submit">Saqlash</button></form>')
+    else:
+        files = _media_files(sec)
+        links = ""
+        if sec == "roliklar":
+            path = MEDIA / "roliklar" / "havolalar.txt"
+            text = path.read_text(encoding="utf-8") if path.is_file() else ""
+            links = ('<form class="card" method="post" action="/media/links"><fieldset><legend>YouTube havolalari</legend>'
+                     '<label>Har qatorda: Sarlavha | havola<textarea name="links" rows="5" '
+                     f"placeholder=\"Aziz va Madina to'yi | https://youtu.be/...\">{escape(text)}</textarea></label>"
+                     '<button class="primary" type="submit">Saqlash</button></fieldset></form>')
+        hint = MEDIA_HINT.get(sec, "Bir nechta rasm yoki videoni birdan tanlash mumkin. Fayl nomi — saytdagi sarlavha.")
+        body = f"""
+  <form class="card" method="post" action="/media/upload?s={sec}" enctype="multipart/form-data">
+    <fieldset><legend>Yangi: {MEDIA_TABS[sec].lower()}</legend>
+      <div class="meta">{hint}</div>
+      <label>Sarlavha (ixtiyoriy, bitta fayl uchun)<input name="title" placeholder="Masalan: Oq atirgul"></label>
+      <label>Fayllar<input type="file" name="files" accept="image/*,video/*"{"" if sec == "bosh" else " multiple"} required></label>
+      <button class="primary" type="submit">⬆️ Yuklash</button>
+    </fieldset></form>
+  {links}
+  <div class="meta">Saytda: {len(files)} ta fayl</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">
+    {"".join(_media_card(sec, f) for f in files)}</div>"""
+    return page("Sayt rasmlari", f"""
+<div class="wrap">
+  <header><h1>🖼 Sayt</h1><div class="actions"><a class="btn" href="/sayt" target="_blank">Saytni ochish ↗</a>
+    <a class="btn" href="/">← Orqaga</a></div></header>
+  <div class="chips">{tabs}</div>
+  {msg}
+  {body}
+</div>""")
+
+
+def _safe_name(name: str) -> str:
+    name = BAD_NAME.sub(" ", name).strip(" .")
+    return re.sub(r"\s+", " ", name)[:80] or "fayl"
+
+
+async def media_upload(request: web.Request) -> web.Response:
+    """Fayllar oqim bilan diskka yoziladi (katta video ham xotirani to'ldirmaydi)."""
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    sec = request.query.get("s", "")
+    if sec not in MEDIA_TABS or sec == "sozlamalar":
+        raise web.HTTPSeeOther("/media")
+    folder = _media_folder(sec)
+    folder.mkdir(parents=True, exist_ok=True)
+    reader = await request.multipart()
+    title, saved, bad = "", 0, False
+    while (part := await reader.next()) is not None:
+        if part.name == "title":
+            title = (await part.text()).strip()
+            continue
+        if part.name != "files" or not part.filename:
+            continue
+        ext = Path(part.filename).suffix.lower()
+        if ext not in IMAGE_EXT | VIDEO_EXT:
+            bad = True
+            continue
+        if sec == "bosh":
+            for old in _media_files("bosh"):
+                old.unlink()
+            stem = "hero"
+        else:
+            # telefon nomi «02 Oltin sahna» bo'lsa ham raqam ikki marta chiqmasin
+            name = _safe_name(title if title and not saved else re.sub(r"^\d+\s+", "", Path(part.filename).stem))
+            stem = f"{len(_media_files(sec)) + 1:02d} {name}"
+        target, n = folder / f"{stem}{ext}", 2
+        while target.exists():
+            target, n = folder / f"{stem} ({n}){ext}", n + 1
+        size = 0
+        with open(target, "wb") as fh:
+            while chunk := await part.read_chunk(1 << 20):
+                size += len(chunk)
+                if size > MAX_UPLOAD:
+                    break
+                fh.write(chunk)
+        if size > MAX_UPLOAD or size == 0:
+            target.unlink(missing_ok=True)
+            bad = True
+        else:
+            saved += 1
+    raise web.HTTPSeeOther(f"/media?s={sec}&m={'up' if saved and not bad else 'bad'}")
+
+
+async def media_delete(request: web.Request) -> web.Response:
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    form = await request.post()
+    sec, name = str(form.get("s", "")), Path(str(form.get("f", ""))).name
+    if sec in MEDIA_TABS and sec != "sozlamalar":
+        target = _media_folder(sec) / name
+        if target in _media_files(sec):  # faqat ro'yxatdagi faylni o'chiradi
+            target.unlink()
+    raise web.HTTPSeeOther(f"/media?s={sec}&m=del")
+
+
+async def media_links(request: web.Request) -> web.Response:
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    text = str((await request.post()).get("links", ""))
+    lines = [line.strip() for line in text.splitlines() if "https://" in line][:100]
+    folder = MEDIA / "roliklar"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "havolalar.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    raise web.HTTPSeeOther("/media?s=roliklar&m=set")
+
+
+async def media_settings(request: web.Request) -> web.Response:
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    save_settings(dict(await request.post()))
+    raise web.HTTPSeeOther("/media?s=sozlamalar&m=set")
+
+
 async def login(request: web.Request) -> web.Response:
     ip = _ip(request)
     if _blocked(ip):
@@ -971,6 +1148,8 @@ def build_app(bot: Bot, db: Database, bot_username: str) -> web.Application:
         web.post("/login", login), web.post("/logout", logout), web.post("/pay", pay),
         web.post("/editor", set_editor), web.post("/stage", stage), web.get("/health", health),
         web.post("/sorov", take_request),
+        web.get("/media", media_page), web.post("/media/upload", media_upload), web.post("/media/del", media_delete),
+        web.post("/media/links", media_links), web.post("/media/settings", media_settings),
         web.get("/cash", cash_page), web.get("/cash/new", cash_new), web.post("/cash/add", cash_add),
         web.post("/cash/del", cash_del), web.post("/cash/limit", cash_limit),
     ])

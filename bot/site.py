@@ -15,12 +15,15 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from aiohttp import web
 
+from .config import SITE_MEDIA
 from .db import Database
 from .utils import escape, fmt_date, normalize_phone, parse_date
 
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent.parent / "sayt"
-MEDIA = ROOT / "media"
+MEDIA = (Path(SITE_MEDIA) if SITE_MEDIA else ROOT / "media").resolve()
+SETTINGS = MEDIA / "sozlamalar.json"
+SETTING_KEYS = ("telefon", "telegram", "instagram", "youtube", "manzil", "xarita", "ish_vaqti")
 SECTIONS = ("roliklar", "dekorlar", "taklifnomalar", "albomlar", "studiya", "jamoa")
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 VIDEO_EXT = {".mp4", ".webm", ".mov"}
@@ -38,6 +41,20 @@ def take_kb(req_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="✅ Qabul qildim", callback_data=SrCb(id=req_id).pack())
     ]])
+
+
+def load_settings() -> dict:
+    try:
+        data = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    return {k: str(data.get(k) or "") for k in SETTING_KEYS}
+
+
+def save_settings(values: dict) -> None:
+    MEDIA.mkdir(parents=True, exist_ok=True)
+    data = {k: str(values.get(k) or "").strip()[:200] for k in SETTING_KEYS}
+    SETTINGS.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _title(path: Path) -> str:
@@ -73,8 +90,7 @@ async def site_index(request: web.Request) -> web.Response:
 
 
 async def gallery(request: web.Request) -> web.Response:
-    settings = ROOT / "sozlamalar.json"
-    info = json.loads(settings.read_text(encoding="utf-8")) if settings.is_file() else {}
+    info = load_settings()
     info["bot"] = request.app["bot_username"]
     hero = next((f"/sayt/media/{f.name}" for f in sorted(MEDIA.glob("hero.*"))
                  if f.suffix.lower() in VIDEO_EXT | IMAGE_EXT), "")

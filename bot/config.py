@@ -14,6 +14,8 @@ TIMEZONE = os.getenv("TIMEZONE", "Asia/Tashkent")
 # Sayt (zakaz va qarzdorlar): Railway PORT beradi; kompyuterda WEB_PORT=8080 qilib sinash mumkin
 WEB_PORT = int(os.getenv("PORT") or os.getenv("WEB_PORT") or 0)
 SITE_PIN = os.getenv("SITE_PIN", "").strip()
+# Ochiq sayt rasmlari/videolari va sozlamalari (Render'da diskka: /data/media)
+SITE_MEDIA = os.getenv("SITE_MEDIA", "").strip()
 
 ROLES = {
     "admin": "Admin",
