@@ -21,15 +21,16 @@ BTN_REPORT = "📊 Hisobot"
 BTN_STAFF = "👥 Xodimlar"
 BTN_EVENT_TYPES = "🎉 Tadbir turlari"
 BTN_ADD_OPERATOR = "➕ Operator qo'shish"
+BTN_REQUESTS = "🌐 Saytdan so'rovlar"
 BTN_CANCEL = "❌ Bekor qilish"
 
 MENU_BUTTONS = {
     BTN_NEW_ORDER, BTN_ORDERS, BTN_UPCOMING, BTN_DEBTS, BTN_FLASH,
-    BTN_EDITING, BTN_REPORT, BTN_STAFF, BTN_EVENT_TYPES, BTN_ADD_OPERATOR,
+    BTN_EDITING, BTN_REPORT, BTN_STAFF, BTN_EVENT_TYPES, BTN_ADD_OPERATOR, BTN_REQUESTS,
 }
 
-# Keyingi bosqichlarda quriladigan bo'limlar
-NOT_READY_BUTTONS = [BTN_UPCOMING, BTN_DEBTS, BTN_FLASH, BTN_EDITING, BTN_REPORT]
+# Keyingi bosqichlarda quriladigan bo'limlar (hozir hammasi ishlaydi)
+NOT_READY_BUTTONS: list[str] = []
 
 
 def admin_menu() -> ReplyKeyboardMarkup:
@@ -39,7 +40,7 @@ def admin_menu() -> ReplyKeyboardMarkup:
         [BTN_DEBTS, BTN_FLASH],
         [BTN_EDITING, BTN_REPORT],
         [BTN_STAFF, BTN_ADD_OPERATOR],
-        [BTN_EVENT_TYPES],
+        [BTN_REQUESTS, BTN_EVENT_TYPES],
     ]
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=t) for t in row] for row in rows],
@@ -240,8 +241,14 @@ def order_card_kb() -> InlineKeyboardMarkup:
 # ---------- Operator ----------
 
 class AsgCb(CallbackData, prefix="asg"):
-    action: str  # yes, no
+    action: str  # yes, no, flash (fleshkani topshirdim)
     id: int
+
+
+def flash_kb(asg_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Fleshkani topshirdim", callback_data=AsgCb(action="flash", id=asg_id).pack()),
+    ]])
 
 
 def assignment_kb(asg_id: int) -> InlineKeyboardMarkup:

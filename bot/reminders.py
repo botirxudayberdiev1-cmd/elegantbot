@@ -13,11 +13,12 @@ from aiogram import Bot
 
 from .cards import STATUS_ICONS, assignment_text
 from .config import (
-    ADMIN_SUMMARY_AT, CHECK_EVERY, DEKOR_MORNING_AT, DEKOR_UNTIL, EVENING_AT,
+    ADMIN_SUMMARY_AT, CHECK_EVERY, DEKOR_MORNING_AT, DEKOR_UNTIL, EVENING_AT, FLASH_AT, FLASH_DAYS,
+    FLASH_START,
     HOURS_BEFORE, QUIET_FROM,
 )
 from .db import Database
-from .keyboards import assignment_kb
+from .keyboards import assignment_kb, flash_kb
 from .notify import send_card
 from .utils import TZ, escape, fmt_date, notify_admins, now
 
@@ -136,6 +137,23 @@ async def check(bot: Bot, db: Database, t: datetime | None = None) -> None:
                 await send_card(bot, a, f"{title}\n\n{assignment_text(a, team)}", kb)
             except Exception as e:  # xodim botni bloklagan bo'lishi mumkin
                 log.warning("Eslatma (%s) %s ga yuborilmadi: %s", kind, a["staff_name"], e)
+
+    # Tadbirdan keyingi kunlar: operator/fotograf fleshkani topshirguncha (FLASH_DAYS kun) har kuni so'raladi
+    if _at(today, FLASH_AT) <= t < _at(today, QUIET_FROM):
+        for f in await db.flash_pending(max((today - timedelta(days=FLASH_DAYS)).isoformat(), FLASH_START),
+                                        (today - timedelta(days=1)).isoformat()):
+            if not f["staff_tg_id"] or not await db.reminder_claim("fleshka", f["id"], today.isoformat()):
+                continue
+            try:
+                await bot.send_message(
+                    f["staff_tg_id"],
+                    f"💾 <b>Fleshkani topshiring</b>\n{escape(f['type_name'])}, {fmt_date(f['date'])}, "
+                    f"mijoz {escape(f['client_name'])} (№{f['order_id']}).\n"
+                    "Fayllarni montajga topshirib bo'lgach, tugmani bosing.",
+                    reply_markup=flash_kb(f["id"]),
+                )
+            except Exception as e:
+                log.warning("Fleshka eslatmasi %s ga yuborilmadi: %s", f["staff_name"], e)
 
     if _at(today, ADMIN_SUMMARY_AT) <= t < _at(today, QUIET_FROM):
         if await db.reminder_claim("admin_kun", 0, today.isoformat()):

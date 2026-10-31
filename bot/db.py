@@ -635,6 +635,28 @@ class Database:
             (first, last),
         )
 
+    async def flash_pending(self, first: str, last: str):
+        """Tadbirdan keyin fleshkasini topshirmagan operator/fotograflar (rad etganlar hisobga olinmaydi)."""
+        return await self._all(
+            "SELECT a.id, a.event_id, s.name AS staff_name, s.tg_id AS staff_tg_id, s.role, "
+            "  e.date, e.time, e.order_id, t.name AS type_name, o.client_name "
+            "FROM assignments a JOIN staff s ON s.id = a.staff_id JOIN events e ON e.id = a.event_id "
+            "JOIN event_types t ON t.id = e.event_type_id JOIN orders o ON o.id = e.order_id "
+            "WHERE e.date BETWEEN ? AND ? AND a.status != 'rad' AND a.flash_cleared_at IS NULL "
+            "  AND s.role IN ('operator', 'fotograf') AND s.active = 1 "
+            "ORDER BY e.date, e.time, a.id",
+            (first, last),
+        )
+
+    async def assignment_flash_done(self, asg_id: int) -> bool:
+        cur = await self.conn.execute(
+            "UPDATE assignments SET flash_cleared_at = datetime('now', 'localtime') "
+            "WHERE id = ? AND flash_cleared_at IS NULL",
+            (asg_id,),
+        )
+        await self.conn.commit()
+        return cur.rowcount == 1
+
     async def reminder_claim(self, kind: str, ref_id: int, day: str) -> bool:
         """Eslatmani "yuborildi" deb belgilaydi. Avval belgilangan bo'lsa — False."""
         cur = await self.conn.execute(

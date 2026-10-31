@@ -9,6 +9,22 @@ from ..utils import escape, notify_admins
 router = Router(name="operator")
 
 
+@router.callback_query(AsgCb.filter(F.action == "flash"))
+async def flash_done(call: CallbackQuery, callback_data: AsgCb, db: Database, bot: Bot):
+    a = await db.assignment_info(callback_data.id)
+    if not a or a["staff_tg_id"] != call.from_user.id:
+        await call.answer("Bu tadbir sizga tegishli emas.", show_alert=True)
+        return
+    first = await db.assignment_flash_done(a["id"])
+    await call.message.edit_reply_markup(reply_markup=None)
+    await call.answer("Rahmat!" if first else "Allaqachon belgilangan.")
+    if first:
+        await call.message.answer("✅ Fleshka topshirildi deb belgilandi. Rahmat!")
+        await notify_admins(bot, db, f"💾 <b>{escape(a['staff_name'])}</b> fleshkani topshirdi: "
+                                     f"{escape(a['type_name'])}, {a['date'][8:10]}.{a['date'][5:7]}, "
+                                     f"mijoz {escape(a['client_name'])} (№{a['order_id']})")
+
+
 @router.callback_query(AsgCb.filter(F.action.in_({"yes", "no"})))
 async def respond(call: CallbackQuery, callback_data: AsgCb, db: Database, bot: Bot):
     a = await db.assignment_info(callback_data.id)
