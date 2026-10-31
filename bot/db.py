@@ -149,6 +149,25 @@ CREATE TABLE IF NOT EXISTS cash_limits (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cash_day ON cash(book, day);
+-- Srochne foto savdosi: to'yda chiqarib sotilgan rasmlar (soni × narx)
+CREATE TABLE IF NOT EXISTS photo_sales (
+    id         INTEGER PRIMARY KEY,
+    event_id   INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    staff_id   INTEGER NOT NULL REFERENCES staff(id),
+    count      INTEGER NOT NULL CHECK (count >= 0),
+    price      INTEGER NOT NULL,
+    amount     INTEGER NOT NULL,
+    cash_id    INTEGER,                    -- Kassaga tushgan kirim yozuvi
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    UNIQUE (event_id, staff_id)
+);
+
+-- Oddiy sozlamalar (masalan, srochne foto narxi)
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_events_date ON events(date);
 CREATE INDEX IF NOT EXISTS idx_assignments_staff ON assignments(staff_id);
 CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id);
@@ -175,7 +194,10 @@ class Database:
         await self.conn.executescript(SCHEMA)
         await self._migrate_staff_roles()
         await self._add_missing_columns("events", EVENT_NEW_COLUMNS)
-        await self._add_missing_columns("cash", {"ext_id": "TEXT"})  # Kassa ilovasidan ko'chirilgan yozuv ID
+        await self._add_missing_columns("cash", {"ext_id": "TEXT", "staff_id": "INTEGER", "pay_month": "TEXT"})
+        # Ish haqi: oylik (salary) + har tadbir uchun odatiy summa (event_rate)
+        await self._add_missing_columns("staff", {"salary": "INTEGER NOT NULL DEFAULT 0",
+                                                  "event_rate": "INTEGER NOT NULL DEFAULT 0"})  # Kassa ilovasidan ko'chirilgan yozuv ID
         await self.conn.execute("PRAGMA foreign_keys = ON")
         async with self.conn.execute("SELECT COUNT(*) FROM event_types") as cur:
             (count,) = await cur.fetchone()
@@ -203,7 +225,8 @@ class Database:
         if ROLE_CHECK in row["sql"]:
             return
         new_sql = re.sub(r"CHECK \(role IN \([^)]*\)\)", ROLE_CHECK, row["sql"], count=1)
-        new_sql = new_sql.replace("CREATE TABLE staff", "CREATE TABLE staff_new", 1)
+        # Avvalgi qayta qurishdan keyin SQLite nomni qo'shtirnoqda saqlaydi: CREATE TABLE "staff"
+        new_sql = re.sub(r'CREATE TABLE\s+"?staff"?', "CREATE TABLE staff_new", new_sql, count=1)
         await self.conn.executescript(
             "BEGIN;"
             + new_sql + ";"
@@ -354,8 +377,9 @@ class Database:
                 event_id = cur.lastrowid
                 for op in ev["ops"]:
                     cur = await self.conn.execute(
-                        "INSERT INTO assignments (event_id, staff_id, pay) VALUES (?, ?, ?)",
-                        (event_id, op["id"], op["pay"]),
+                        "INSERT INTO assignments (event_id, staff_id, pay) "
+                        "VALUES (?, ?, COALESCE(NULLIF(?, 0), (SELECT event_rate FROM staff WHERE id = ?), 0))",
+                        (event_id, op["id"], op["pay"], op["id"]),
                     )
                     asg_ids.append(cur.lastrowid)
             if d.get("deposit"):
@@ -541,11 +565,13 @@ class Database:
     # ---------- Kirim-chiqim ----------
 
     async def cash_add(self, book: str, kind: str, amount: int, currency: str, category: str,
-                       note: str | None, day: str, ext_id: str | None = None) -> int:
+                       note: str | None, day: str, ext_id: str | None = None, staff_id: int | None = None,
+                       pay_month: str | None = None) -> int:
+        """pay_month ('2026-11') — maosh qaysi oy uchun berilgani (berilgan kun boshqa oyda bo'lishi mumkin)."""
         cur = await self.conn.execute(
-            "INSERT INTO cash (book, kind, amount, currency, category, note, day, ext_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (book, kind, amount, currency, category, note, day, ext_id),
+            "INSERT INTO cash (book, kind, amount, currency, category, note, day, ext_id, staff_id, pay_month) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (book, kind, amount, currency, category, note, day, ext_id, staff_id, pay_month),
         )
         await self.conn.commit()
         return cur.lastrowid
@@ -701,3 +727,116 @@ class Database:
         )
         await self.conn.commit()
         return cur.rowcount > 0
+
+    # ---------- Sozlamalar ----------
+
+    async def setting_get(self, key: str, default: str = "") -> str:
+        row = await self._one("SELECT value FROM settings WHERE key = ?", (key,))
+        return row["value"] if row else default
+
+    async def setting_set(self, key: str, value: str) -> None:
+        await self.conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        await self.conn.commit()
+
+    # ---------- Ish haqi ----------
+
+    async def staff_rates_set(self, staff_id: int, salary: int, event_rate: int) -> None:
+        await self.conn.execute(
+            "UPDATE staff SET salary = ?, event_rate = ? WHERE id = ?", (salary, event_rate, staff_id)
+        )
+        await self.conn.commit()
+
+    async def payroll(self, first: str, last: str) -> list[dict]:
+        """Har xodim: oylik + shu oydagi tadbirlar uchun (rad etganlari hisobga olinmaydi) va to'langani."""
+        rows = await self._all(
+            "SELECT s.id, s.name, s.role, s.tg_id, s.salary, s.event_rate, "
+            "  (SELECT COUNT(*) FROM assignments a JOIN events e ON e.id = a.event_id "
+            "   WHERE a.staff_id = s.id AND a.status != 'rad' AND e.date BETWEEN ? AND ?) AS events, "
+            "  (SELECT COALESCE(SUM(a.pay), 0) FROM assignments a JOIN events e ON e.id = a.event_id "
+            "   WHERE a.staff_id = s.id AND a.status != 'rad' AND e.date BETWEEN ? AND ?) AS event_pay, "
+            "  (SELECT COALESCE(SUM(c.amount), 0) FROM cash c WHERE c.staff_id = s.id AND c.kind = 'chiqim' "
+            "   AND c.currency = 'UZS' AND COALESCE(c.pay_month, substr(c.day, 1, 7)) = substr(?, 1, 7)) AS paid "
+            "FROM staff s WHERE s.active = 1 AND s.role != 'admin' "
+            "ORDER BY CASE s.role WHEN 'operator' THEN 0 WHEN 'fotograf' THEN 1 ELSE 2 END, s.name",
+            (first, last, first, last, first),
+        )
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["earned"] = d["salary"] + d["event_pay"]
+            d["left"] = d["earned"] - d["paid"]
+            out.append(d)
+        return out
+
+    async def staff_payouts(self, staff_id: int, first: str, last: str):
+        return await self._all(
+            "SELECT id, amount, day, note FROM cash WHERE staff_id = ? AND kind = 'chiqim' AND day BETWEEN ? AND ? "
+            "ORDER BY day, id",
+            (staff_id, first, last),
+        )
+
+    # ---------- Srochne foto ----------
+
+    async def sale_events(self, staff_id: int, first: str, last: str):
+        """Srochne fotochining shu kunlardagi tadbirlari va (bo'lsa) yozilgan savdosi."""
+        return await self._all(
+            "SELECT a.id AS asg_id, e.id AS event_id, e.date, e.time, e.address, t.name AS type_name, "
+            "  o.id AS order_id, o.client_name, ps.count, ps.amount "
+            "FROM assignments a JOIN events e ON e.id = a.event_id "
+            "JOIN event_types t ON t.id = e.event_type_id JOIN orders o ON o.id = e.order_id "
+            "LEFT JOIN photo_sales ps ON ps.event_id = e.id AND ps.staff_id = a.staff_id "
+            "WHERE a.staff_id = ? AND a.status != 'rad' AND e.date BETWEEN ? AND ? "
+            "ORDER BY e.date, e.time",
+            (staff_id, first, last),
+        )
+
+    async def sale_save(self, event_id: int, staff_id: int, count: int, price: int, cash_note: str,
+                        day: str) -> int:
+        """Savdo yoziladi (qayta yozilsa — yangilanadi) va Kassaga Studiya kirimi bo'lib tushadi."""
+        amount = count * price
+        old = await self._one(
+            "SELECT id, cash_id FROM photo_sales WHERE event_id = ? AND staff_id = ?", (event_id, staff_id)
+        )
+        if old and old["cash_id"]:
+            await self.conn.execute("DELETE FROM cash WHERE id = ?", (old["cash_id"],))
+        cash_id = None
+        if amount > 0:
+            cur = await self.conn.execute(
+                "INSERT INTO cash (book, kind, amount, currency, category, note, day, staff_id) "
+                "VALUES ('biznes', 'kirim', ?, 'UZS', 'Srochne foto', ?, ?, ?)",
+                (amount, cash_note, day, staff_id),
+            )
+            cash_id = cur.lastrowid
+        await self.conn.execute(
+            "INSERT INTO photo_sales (event_id, staff_id, count, price, amount, cash_id) VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (event_id, staff_id) DO UPDATE SET count = excluded.count, price = excluded.price, "
+            "  amount = excluded.amount, cash_id = excluded.cash_id, created_at = datetime('now', 'localtime')",
+            (event_id, staff_id, count, price, amount, cash_id),
+        )
+        await self.conn.commit()
+        return amount
+
+    async def sales_between(self, first: str, last: str):
+        return await self._all(
+            "SELECT ps.*, s.name AS staff_name, e.date, t.name AS type_name, o.id AS order_id, o.client_name "
+            "FROM photo_sales ps JOIN staff s ON s.id = ps.staff_id JOIN events e ON e.id = ps.event_id "
+            "JOIN event_types t ON t.id = e.event_type_id JOIN orders o ON o.id = e.order_id "
+            "WHERE e.date BETWEEN ? AND ? ORDER BY e.date, ps.id",
+            (first, last),
+        )
+
+    async def sales_missing(self, first: str, last: str):
+        """Tadbiri o'tgan, lekin savdosi yozilmagan srochne fotochilar."""
+        return await self._all(
+            "SELECT a.id, s.name AS staff_name, s.tg_id AS staff_tg_id, e.id AS event_id, e.date, "
+            "  t.name AS type_name, o.id AS order_id, o.client_name "
+            "FROM assignments a JOIN staff s ON s.id = a.staff_id JOIN events e ON e.id = a.event_id "
+            "JOIN event_types t ON t.id = e.event_type_id JOIN orders o ON o.id = e.order_id "
+            "WHERE s.role = 'srochnefoto' AND s.active = 1 AND a.status != 'rad' AND e.date BETWEEN ? AND ? "
+            "  AND NOT EXISTS (SELECT 1 FROM photo_sales ps WHERE ps.event_id = e.id AND ps.staff_id = s.id) "
+            "ORDER BY e.date",
+            (first, last),
+        )

@@ -10,7 +10,7 @@ import json
 import logging
 import re
 import time
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -359,6 +359,7 @@ async def index(request: web.Request) -> web.Response:
     <form method="post" action="/logout"><button class="linkbtn" type="submit">Chiqish</button></form></header>
   <div class="bigbtns"><a class="btn primary" href="/new">➕ Yangi zakaz</a>
     <a class="btn" href="/kassa/">💰 Kassa</a>
+    <a class="btn" href="/maosh">👷 Maosh</a>
     <a class="btn" href="/media" style="grid-column:1/-1">🖼 Sayt: rasm, video, kontaktlar</a></div>
   <nav class="tabs">
     <a href="/?tab=orders"{cur if tab == 'orders' else ''}>Zakazlar · {len(upcoming)}</a>
@@ -926,6 +927,161 @@ async def cash_limit(request: web.Request) -> web.Response:
     raise _cash_back(book, period, m="limit_set")
 
 
+# ---------- Maosh: oylik + har tadbir uchun, srochne foto savdosi ----------
+
+PAYOUT_CATEGORY = "Operatorlarga maosh"
+MONTH_NAMES = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr",
+               "noyabr", "dekabr"]
+PAY_FLASH = {"rates": ("", "✅ Stavka saqlandi."), "paid": ("", "✅ To'lov yozildi — Kassada ham ko'rinadi."),
+             "price": ("", "✅ Srochne foto narxi saqlandi."), "bad": ("err", "Summani to'g'ri yozing.")}
+
+
+def _month(value: str) -> date:
+    try:
+        return date.fromisoformat(value + "-01")
+    except ValueError:
+        return today().replace(day=1)
+
+
+def _shift(d: date, months: int) -> str:
+    y, m = divmod(d.year * 12 + d.month - 1 + months, 12)
+    return f"{y}-{m + 1:02d}"
+
+
+async def payroll_page(request: web.Request) -> web.Response:
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    db: Database = request.app["db"]
+    m = _month(request.query.get("m", ""))
+    first, last = (d.isoformat() for d in month_range(m))
+    mkey = f"{m.year}-{m.month:02d}"
+    rows = await db.payroll(first, last)
+    price = int(await db.setting_get("foto_narx", "0") or 0)
+    sales = await db.sales_between(first, last)
+    missing = await db.sales_missing(first, min(last, (today() - timedelta(days=1)).isoformat()))
+    flash = PAY_FLASH.get(request.query.get("f", ""))
+    msg = f'<div class="msg {flash[0]}">{flash[1]}</div>' if flash else ""
+
+    cards = []
+    for r in rows:
+        left = r["left"]
+        status = (f'<span class="owe">{fmt_money(left)}<small>berish kerak</small></span>' if left > 0 else
+                  f'<span class="owe ok">{fmt_money(-left) if left else "0 so\'m"}<small>{"ortiqcha berilgan" if left else "hisob yopiq"}</small></span>')
+        hidden = f'<input type="hidden" name="id" value="{r["id"]}"><input type="hidden" name="m" value="{mkey}">'
+        cards.append(f"""
+<article class="row">
+  <div class="top"><div><div class="name">{escape(r["name"])}</div>
+    <div class="meta">{ROLES.get(r["role"], r["role"])} · {r["events"]} ta tadbir{"" if r["tg_id"] else " · botga ulanmagan"}</div></div>
+    {status}</div>
+  <div class="pays">
+    <div><span>Oylik</span><span class="num">{fmt_money(r["salary"])}</span></div>
+    <div><span>Tadbirlar uchun ({r["events"]} ta)</span><span class="num">{fmt_money(r["event_pay"])}</span></div>
+    <div><span><b>Hisoblandi</b></span><span class="num"><b>{fmt_money(r["earned"])}</b></span></div>
+    <div><span>Berildi</span><span class="num">{fmt_money(r["paid"])}</span></div>
+  </div>
+  <form class="inline" method="post" action="/maosh/pay" onsubmit="return confirm(&quot;{attr(r["name"])}ga to'lov yozilsinmi?&quot;)">{hidden}
+    <input name="amount" inputmode="numeric" placeholder="{fmt_money(max(left, 0))}" value="{max(left, 0) or ''}" aria-label="Summa">
+    <button class="okbtn" type="submit">💵 To'lash</button></form>
+  <details><summary class="meta">Stavkani o'zgartirish</summary>
+  <form class="card" method="post" action="/maosh/rates" style="margin-top:8px">{hidden}
+    <div class="grid2"><label>Oylik<input name="salary" inputmode="numeric" value="{r["salary"] or ''}" placeholder="0"></label>
+    <label>Har tadbir uchun<input name="rate" inputmode="numeric" value="{r["event_rate"] or ''}" placeholder="300 000"></label></div>
+    <div class="meta">«Har tadbir uchun» — yangi zakazlarda summa yozilmasa shu qo'yiladi. Zakaz shablonida «Orif 350» deb boshqa summa yozish mumkin.</div>
+    <button type="submit">Saqlash</button></form></details>
+</article>""")
+
+    sale_lines = "".join(
+        f'<div><span>{_short(s_["date"])} {escape(s_["type_name"])} · {escape(s_["client_name"])} — {escape(s_["staff_name"])}, '
+        f'{s_["count"]} ta × {fmt_money(s_["price"])}</span><span class="num">{fmt_money(s_["amount"])}</span></div>'
+        for s_ in sales)
+    miss_lines = "".join(f'<div class="ev">⚠️ {_short(x["date"])} {escape(x["type_name"])} · {escape(x["client_name"])} — '
+                         f'{escape(x["staff_name"])} savdoni yozmagan</div>' for x in missing)
+    total_paid = sum(r["paid"] for r in rows)
+    total_left = sum(max(r["left"], 0) for r in rows)
+    return page("Maosh", f"""
+<div class="wrap">
+  <header><h1>👷 Maosh</h1><a class="btn" href="/">← Orqaga</a></header>
+  <div class="actions"><a class="btn" href="/maosh?m={_shift(m, -1)}">‹</a>
+    <b style="flex:1;text-align:center">{MONTH_NAMES[m.month - 1].capitalize()} {m.year}</b>
+    <a class="btn" href="/maosh?m={_shift(m, 1)}">›</a></div>
+  <section class="total"><div><div class="eyebrow">Xodimlarga berish kerak</div><div class="big">{fmt_money(total_left)}</div></div>
+    <div class="side">Berildi: {fmt_money(total_paid)}</div></section>
+  {msg}
+  {"".join(cards) or '<div class="empty">Xodim yo&#39;q</div>'}
+  <section class="row"><div class="name">📸 Srochne foto</div>
+    <form class="inline" method="post" action="/maosh/price"><input type="hidden" name="m" value="{mkey}">
+      <input name="price" inputmode="numeric" value="{price or ''}" placeholder="Bitta rasm narxi, masalan 25 000" aria-label="Rasm narxi">
+      <button type="submit">Saqlash</button></form>
+    <div class="meta">Srochne fotochi to'ydan keyin botga nechta rasm sotganini yozadi — summa shu narxga ko'paytiriladi va Kassaga tushadi.</div>
+    <div class="pays">{sale_lines or "<div>Bu oyda savdo yozilmagan.</div>"}
+      {f'<div><span><b>Jami</b></span><span class="num"><b>{fmt_money(sum(x["amount"] for x in sales))}</b></span></div>' if sales else ""}</div>
+    {miss_lines}
+  </section>
+</div>""")
+
+
+def _short(iso: str) -> str:
+    return f"{iso[8:10]}.{iso[5:7]}"
+
+
+async def payroll_rates(request: web.Request) -> web.Response:
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    form = await request.post()
+    salary, rate = parse_money(str(form.get("salary") or "0")), parse_money(str(form.get("rate") or "0"))
+    try:
+        staff_id = int(form.get("id", ""))
+    except ValueError:
+        staff_id = 0
+    mkey = str(form.get("m", ""))[:7]
+    if salary is None or rate is None or not staff_id:
+        raise web.HTTPSeeOther(f"/maosh?m={mkey}&f=bad")
+    await request.app["db"].staff_rates_set(staff_id, salary, rate)
+    raise web.HTTPSeeOther(f"/maosh?m={mkey}&f=rates")
+
+
+async def payroll_pay(request: web.Request) -> web.Response:
+    """To'lov Kassaga Studiya chiqimi bo'lib yoziladi; xodimga botda xabar boradi."""
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    db: Database = request.app["db"]
+    form = await request.post()
+    amount = parse_money(str(form.get("amount") or ""))
+    m = _month(str(form.get("m", ""))[:7])
+    mkey = f"{m.year}-{m.month:02d}"
+    try:
+        staff = await db.staff_get(int(form.get("id", "")))
+    except ValueError:
+        staff = None
+    if not amount or not staff:
+        raise web.HTTPSeeOther(f"/maosh?m={mkey}&f=bad")
+    label = f"{MONTH_NAMES[m.month - 1]} {m.year}"
+    await db.cash_add("biznes", "chiqim", amount, "UZS", PAYOUT_CATEGORY, f"{staff['name']} · {label}",
+                      today().isoformat(), staff_id=staff["id"], pay_month=mkey)
+    if staff["tg_id"]:
+        first, last = (d.isoformat() for d in month_range(m))
+        r = next((x for x in await db.payroll(first, last) if x["id"] == staff["id"]), None)
+        tail = (f"\n{label.capitalize()}: hisoblandi {fmt_money(r['earned'])}, berildi {fmt_money(r['paid'])}"
+                + (f", qoldi {fmt_money(r['left'])}" if r["left"] > 0 else "")) if r else ""
+        try:
+            await request.app["bot"].send_message(staff["tg_id"], f"💵 Sizga <b>{fmt_money(amount)}</b> berildi ({label} maoshi).{tail}")
+        except Exception as e:
+            log.warning("Maosh xabari %s ga bormadi: %s", staff["name"], e)
+    raise web.HTTPSeeOther(f"/maosh?m={mkey}&f=paid")
+
+
+async def payroll_price(request: web.Request) -> web.Response:
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    form = await request.post()
+    price = parse_money(str(form.get("price") or ""))
+    mkey = str(form.get("m", ""))[:7]
+    if price is None:
+        raise web.HTTPSeeOther(f"/maosh?m={mkey}&f=bad")
+    await request.app["db"].setting_set("foto_narx", str(price))
+    raise web.HTTPSeeOther(f"/maosh?m={mkey}&f=price")
+
+
 # ---------- Kirish ----------
 
 async def take_request(request: web.Request) -> web.Response:
@@ -1152,6 +1308,8 @@ def build_app(bot: Bot, db: Database, bot_username: str) -> web.Application:
         web.post("/login", login), web.post("/logout", logout), web.post("/pay", pay),
         web.post("/editor", set_editor), web.post("/stage", stage), web.get("/health", health),
         web.post("/sorov", take_request),
+        web.get("/maosh", payroll_page), web.post("/maosh/rates", payroll_rates), web.post("/maosh/pay", payroll_pay),
+        web.post("/maosh/price", payroll_price),
         web.get("/media", media_page), web.post("/media/upload", media_upload), web.post("/media/del", media_delete),
         web.post("/media/links", media_links), web.post("/media/settings", media_settings),
         web.get("/cash", cash_page), web.get("/cash/new", cash_new), web.post("/cash/add", cash_add),

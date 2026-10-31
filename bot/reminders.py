@@ -18,6 +18,7 @@ from .config import (
     HOURS_BEFORE, QUIET_FROM,
 )
 from .db import Database
+from .handlers.sales import sale_start_kb
 from .keyboards import assignment_kb, flash_kb
 from .notify import send_card
 from .utils import TZ, escape, fmt_date, notify_admins, now
@@ -154,6 +155,21 @@ async def check(bot: Bot, db: Database, t: datetime | None = None) -> None:
                 )
             except Exception as e:
                 log.warning("Fleshka eslatmasi %s ga yuborilmadi: %s", f["staff_name"], e)
+
+        # Srochne foto: savdosi yozilmagan bo'lsa, ertasi kuni so'raladi (bir marta)
+        for f in await db.sales_missing(max((today - timedelta(days=1)).isoformat(), FLASH_START),
+                                        (today - timedelta(days=1)).isoformat()):
+            if not f["staff_tg_id"] or not await db.reminder_claim("savdo", f["id"], today.isoformat()):
+                continue
+            try:
+                await bot.send_message(
+                    f["staff_tg_id"],
+                    f"📸 <b>Kechagi savdoni yozing</b>\n{escape(f['type_name'])}, {fmt_date(f['date'])}, "
+                    f"mijoz {escape(f['client_name'])}. Nechta rasm sotdingiz?",
+                    reply_markup=sale_start_kb(),
+                )
+            except Exception as e:
+                log.warning("Savdo eslatmasi %s ga yuborilmadi: %s", f["staff_name"], e)
 
     if _at(today, ADMIN_SUMMARY_AT) <= t < _at(today, QUIET_FROM):
         if await db.reminder_claim("admin_kun", 0, today.isoformat()):

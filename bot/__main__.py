@@ -8,7 +8,7 @@ from aiogram.enums import ParseMode
 
 from .config import ADMIN_IDS, BOT_TOKEN, DB_PATH
 from .db import Database
-from .handlers import admin, admin_views, backup, event_types, montaj, my_jobs, operator, orders, quick_order, site_requests, staff, start
+from .handlers import admin, admin_views, backup, event_types, montaj, my_jobs, operator, orders, quick_order, sales, site_requests, staff, start
 from .middlewares import LogMiddleware, MenuResetMiddleware
 from .reminders import reminder_loop
 from .web import start_web
@@ -24,7 +24,7 @@ def build_dispatcher(db: Database) -> Dispatcher:
     dp.include_routers(
         start.router, operator.router, montaj.router, site_requests.router, admin.router, admin_views.router, backup.router,
         staff.router, event_types.router, quick_order.router, orders.router,
-        my_jobs.router, admin.fallback_router,
+        sales.router, my_jobs.router, admin.fallback_router,
     )
     return dp
 

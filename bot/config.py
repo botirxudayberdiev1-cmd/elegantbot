@@ -24,10 +24,11 @@ ROLES = {
     "fotograf": "Fotograf",
     "dekorator": "Dekorator",
     "taklifnomachi": "Taklifnomachi",
+    "srochnefoto": "Srochne foto",
 }
 
 # Tadbirga (to'yga) boradigan lavozimlar — buyurtmada shulardan tanlanadi
-FIELD_ROLES = ("operator", "fotograf", "dekorator")
+FIELD_ROLES = ("operator", "fotograf", "dekorator", "srochnefoto")
 
 # Eslatmalar (vaqtlar — TIMEZONE bo'yicha)
 EVENING_AT = "17:00"        # ish kunidan bir kun oldin xodimga eslatma

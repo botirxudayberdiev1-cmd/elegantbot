@@ -73,7 +73,7 @@ async def link_staff(message: Message, token: str, db: Database, bot: Bot):
         f"Siz <b>{role}</b> sifatida ulandingiz.\n\n"
         + ("Quyidagi menyudan foydalaning." if is_admin
            else f"Sizga biriktirilgan tadbirlar shu yerga keladi. Ro'yxatni ko'rish: «{BTN_MY_JOBS}»."),
-        reply_markup=admin_menu() if is_admin else staff_menu(),
+        reply_markup=admin_menu() if is_admin else staff_menu(staff["role"]),
     )
 
     username = f" (@{escape(user.username)})" if user.username else ""
@@ -101,7 +101,7 @@ async def start_plain(message: Message, db: Database, state: FSMContext):
             f"Assalomu alaykum, <b>{escape(staff['name'])}</b>!\n"
             f"Siz {ROLES[staff['role']]} sifatida ro'yxatdasiz. "
             f"Sizga biriktirilgan ishlar shu yerga keladi. Ro'yxatni ko'rish: «{BTN_MY_JOBS}».",
-            reply_markup=staff_menu(),
+            reply_markup=staff_menu(staff["role"]),
         )
         return
 

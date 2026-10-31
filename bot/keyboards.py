@@ -49,10 +49,14 @@ def admin_menu() -> ReplyKeyboardMarkup:
 
 
 BTN_MY_JOBS = "📅 Mening ishlarim"
+BTN_SALE = "📸 Savdo yozish"
 
 
-def staff_menu() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=BTN_MY_JOBS)]], resize_keyboard=True)
+def staff_menu(role: str | None = None) -> ReplyKeyboardMarkup:
+    rows = [[KeyboardButton(text=BTN_MY_JOBS)]]
+    if role == "srochnefoto":
+        rows.append([KeyboardButton(text=BTN_SALE)])
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
 
 def cancel_kb() -> ReplyKeyboardMarkup:

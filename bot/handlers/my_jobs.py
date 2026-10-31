@@ -7,9 +7,10 @@ from aiogram import F, Router
 from aiogram.filters import Filter
 from aiogram.types import Message
 
+from ..cash import month_range
 from ..db import Database
 from ..keyboards import staff_menu
-from ..utils import escape, fmt_date, today
+from ..utils import escape, fmt_date, fmt_money, today
 
 router = Router(name="my_jobs")
 STATUS = {"kutilmoqda": "⏳ javob bermagansiz", "qabul": "✅ qabul qilgansiz",
@@ -47,6 +48,13 @@ async def jobs_text(db: Database, staff) -> str:
                       f"{', ' + fmt_date(e['first_date']) if e['first_date'] else ''}" for e in edits]
     if len(lines) == 1:
         lines.append("\nHozircha sizga biriktirilgan ish yo'q.")
+    # Shu oy maoshi: oylik + tadbirlar uchun, berilgani — kelishmovchilik bo'lmasin
+    first, last = (d.isoformat() for d in month_range(today()))
+    pay = next((p for p in await db.payroll(first, last) if p["id"] == staff["id"]), None)
+    if pay and (pay["earned"] or pay["paid"]):
+        lines.append(f"\n💵 <b>Bu oy</b>: hisoblandi {fmt_money(pay['earned'])} "
+                     f"({pay['events']} ta tadbir), berildi {fmt_money(pay['paid'])}"
+                     + (f", qoldi {fmt_money(pay['left'])}" if pay["left"] > 0 else ""))
     return "\n".join(lines)
 
 
@@ -66,4 +74,4 @@ router.message.filter(IsStaff())
 # Tugma, /ishlarim yoki istalgan matn («bugun to'y qayerda») — o'z ishlari ro'yxati
 @router.message(F.text)
 async def my_jobs(message: Message, db: Database, staff):
-    await message.answer(await jobs_text(db, staff), reply_markup=staff_menu(), disable_web_page_preview=True)
+    await message.answer(await jobs_text(db, staff), reply_markup=staff_menu(staff["role"]), disable_web_page_preview=True)

@@ -155,6 +155,8 @@ async def report(message: Message, db: Database):
             by_cat[c["category"]] = by_cat.get(c["category"], 0) + c["amount"]
     requests = [r for r in await db.site_requests(500) if first <= r["created_at"][:10] <= last]
     debt = sum(o["total"] - o["paid"] for o in orders if o["total"] > o["paid"])
+    sales = await db.sales_between(first, last)
+    payroll = await db.payroll(first, last)
 
     lines = [f"📊 <b>Hisobot — {MONTHS[t.month - 1]} {t.year}</b>\n",
              f"📝 Yangi zakazlar: <b>{len(month_orders)} ta</b>, dogovor {fmt_money(sum(o['total'] for o in month_orders))}",
@@ -163,10 +165,14 @@ async def report(message: Message, db: Database):
              + (f" (qabul qilinmagan: {sum(r['status'] == 'yangi' for r in requests)})" if requests else ""),
              "\n<b>Pul (Studiya, so'm)</b>",
              f"➕ Zakaz to'lovlari: {fmt_money(paid)}",
-             f"➕ Boshqa kirim: {fmt_money(other_in)}",
+             f"➕ Boshqa kirim: {fmt_money(other_in)}"
+             + (f" (shundan srochne foto: {sum(s['count'] for s in sales)} ta rasm, {fmt_money(sum(s['amount'] for s in sales))})" if sales else ""),
              f"➖ Chiqim: {fmt_money(spent)}",
              f"= <b>Qoldi: {fmt_money(paid + other_in - spent)}</b>",
-             f"\n💰 Mijozlardagi jami qarz: <b>{fmt_money(debt)}</b>"]
+             f"\n💰 Mijozlardagi jami qarz: <b>{fmt_money(debt)}</b>",
+             f"👷 Xodimlarga: hisoblandi {fmt_money(sum(p['earned'] for p in payroll))}, "
+             f"berildi {fmt_money(sum(p['paid'] for p in payroll))}, "
+             f"qoldi <b>{fmt_money(sum(max(p['left'], 0) for p in payroll))}</b>"]
     if by_cat:
         lines.append("\n<b>Chiqim nimalarga ketdi</b>")
         lines += [f"• {escape(k)}: {fmt_money(v)}" for k, v in sorted(by_cat.items(), key=lambda x: -x[1])[:8]]
