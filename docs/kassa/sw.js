@@ -1,5 +1,5 @@
 // Kassa internetsiz ham ochilsin: sahifa fayllari telefonda saqlanadi, internet bo'lsa yangisi olinadi.
-const CACHE = "kassa-v2";
+const CACHE = "kassa-v3";
 const FILES = ["./", "index.html", "manifest.json", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", e => {

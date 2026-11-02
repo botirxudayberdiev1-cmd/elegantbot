@@ -13,11 +13,13 @@ from aiohttp import web
 from .cash import BOOKS, DEFAULT_CATEGORY, fmt_cur, month_range
 from .config import ORDER_CATEGORY
 from .db import Database
-from .utils import escape, notify_admins
+from .utils import escape, notify_admins, today
 
 KASSA_DIR = Path(__file__).resolve().parent.parent / "docs" / "kassa"
 MAX_AMOUNT = 10 ** 12
 MAX_IMPORT = 5000
+MAX_QTY = 10 ** 7
+UNITS = ("dona", "list", "pachka", "rulon")
 
 
 def _entry(book: str, e: dict) -> dict:
@@ -60,6 +62,35 @@ async def _limit_alert(request: web.Request, e: dict) -> str:
     return text
 
 
+def _item(r) -> dict:
+    return {"id": f"i{r['id']}", "name": r["name"], "unit": r["unit"], "min": r["min_qty"]}
+
+
+def _move(r) -> dict:
+    return {"id": f"m{r['id']}", "itemId": f"i{r['item_id']}", "kind": r["kind"], "qty": r["qty"],
+            "note": r["note"] or "", "day": r["day"], "createdAt": r["id"]}
+
+
+def _num_id(value, prefix: str) -> int | None:
+    value = str(value or "")
+    return int(value[1:]) if value.startswith(prefix) and value[1:].isdigit() else None
+
+
+def _qty(value) -> int | None:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return n if 0 <= n < MAX_QTY else None
+
+
+async def _low_alert(request: web.Request, item, before: int, after: int) -> None:
+    """Ishlatilgandan keyin qoldiq chegaradan pastga tushsa — adminlarga bir marta xabar."""
+    if item["min_qty"] and after <= item["min_qty"] < before:
+        await notify_admins(request.app["bot"], request.app["db"],
+                            f"📦 Omborda kam qoldi: <b>{escape(item['name'])}</b> — {after} {item['unit']}")
+
+
 def add_kassa_routes(app: web.Application, authed: Callable[[web.Request], bool]) -> None:
     def guard(request: web.Request) -> None:
         if not authed(request):
@@ -73,7 +104,9 @@ def add_kassa_routes(app: web.Application, authed: Callable[[web.Request], bool]
                   for book in BOOKS for r in await db.cash_limits(book)}
         for v in limits.values():
             v.pop("id", None)
-        return web.json_response({"entries": entries, "limits": limits, "orderCategory": ORDER_CATEGORY})
+        return web.json_response({"entries": entries, "limits": limits, "orderCategory": ORDER_CATEGORY,
+                                  "items": [_item(r) for r in await db.stock_items()],
+                                  "moves": [_move(r) for r in await db.stock_moves()]})
 
     async def add(request: web.Request) -> web.Response:
         guard(request)
@@ -107,6 +140,64 @@ def add_kassa_routes(app: web.Application, authed: Callable[[web.Request], bool]
         await request.app["db"].cash_limit_set(body["book"], category, currency, amount)
         return web.json_response({"ok": True})
 
+    async def stock_item(request: web.Request) -> web.Response:
+        guard(request)
+        body = await request.json()
+        db: Database = request.app["db"]
+        name = str(body.get("name") or "").strip()[:40]
+        start, min_qty = _qty(body.get("start") or 0), _qty(body.get("min") or 0)
+        if not name or start is None or min_qty is None:
+            return web.json_response({"error": "Nomi va sonlarni to'g'ri yozing."}, status=400)
+        if await db.stock_item_by_name(name):
+            return web.json_response({"error": f"«{name}» allaqachon bor."}, status=400)
+        unit = body.get("unit") if body.get("unit") in UNITS else "dona"
+        item_id = await db.stock_item_add(name, unit, min_qty)
+        if start:
+            await db.stock_move_add(item_id, "in", start, "Boshlang'ich qoldiq", today().isoformat())
+        return web.json_response({"ok": True})
+
+    async def stock_item_del(request: web.Request) -> web.Response:
+        guard(request)
+        item_id = _num_id((await request.json()).get("id"), "i")
+        if item_id is None:
+            return web.json_response({"error": "Mahsulot topilmadi."}, status=400)
+        await request.app["db"].stock_item_delete(item_id)
+        return web.json_response({"ok": True})
+
+    async def stock_move(request: web.Request) -> web.Response:
+        guard(request)
+        body = await request.json()
+        db: Database = request.app["db"]
+        item_id = _num_id(body.get("itemId"), "i")
+        item = await db.stock_item_get(item_id) if item_id is not None else None
+        qty, kind = _qty(body.get("qty")), body.get("kind")
+        try:
+            day = date.fromisoformat(str(body.get("day") or "")).isoformat()
+        except ValueError:
+            day = None
+        if not item or not qty or kind not in ("in", "out") or not day:
+            return web.json_response({"error": "Sonini to'g'ri yozing."}, status=400)
+        before = item["left_qty"]
+        if kind == "out" and qty > before:
+            return web.json_response({"error": f"Omborda faqat {before} {item['unit']} bor."}, status=400)
+        note = str(body.get("note") or "").strip()[:200]
+        await db.stock_move_add(item["id"], kind, qty, note or None, day)
+        price = _qty(body.get("price")) if kind == "in" else None
+        if price:  # tovar puli Kassaga Studiya chiqimi bo'lib tushadi
+            await db.cash_add("biznes", "chiqim", price, "UZS", item["name"][:40],
+                              f"{qty} {item['unit']} keldi" + (f" · {note}" if note else ""), day)
+        if kind == "out":
+            await _low_alert(request, item, before, before - qty)
+        return web.json_response({"ok": True})
+
+    async def stock_move_del(request: web.Request) -> web.Response:
+        guard(request)
+        move_id = _num_id((await request.json()).get("id"), "m")
+        if move_id is None:
+            return web.json_response({"error": "Yozuv topilmadi."}, status=400)
+        await request.app["db"].stock_move_delete(move_id)
+        return web.json_response({"ok": True})
+
     async def import_local(request: web.Request) -> web.Response:
         """Telefonda (eski ilovada) yozilganlarni bazaga ko'chirish; bir yozuv ikki marta qo'shilmaydi."""
         guard(request)
@@ -130,6 +221,28 @@ def add_kassa_routes(app: web.Application, authed: Callable[[web.Request], bool]
                                             "USD" if lim.get("currency") == "USD" else "UZS", int(lim["amount"]))
             except (KeyError, TypeError, ValueError):
                 continue
+        # Ombor: mahsulot nomi bo'yicha birlashtiriladi, harakat ikki marta qo'shilmaydi
+        item_ids: dict[str, int] = {}
+        for raw in (body.get("items") or [])[:MAX_IMPORT]:
+            name = str((raw or {}).get("name") or "").strip()[:40]
+            if not name:
+                continue
+            row = await db.stock_item_by_name(name)
+            item_ids[str(raw.get("id"))] = row["id"] if row else await db.stock_item_add(
+                name, raw.get("unit") if raw.get("unit") in UNITS else "dona", _qty(raw.get("min")) or 0)
+        have_moves = await db.stock_ext_ids()
+        for raw in (body.get("moves") or [])[:MAX_IMPORT]:
+            raw = raw or {}
+            ext, item_id, qty = str(raw.get("id") or "")[:40], item_ids.get(str(raw.get("itemId"))), _qty(raw.get("qty"))
+            try:
+                day = date.fromisoformat(str(raw.get("day") or "")).isoformat()
+            except ValueError:
+                continue
+            if not ext or ext in have_moves or item_id is None or not qty or raw.get("kind") not in ("in", "out"):
+                continue
+            await db.stock_move_add(item_id, raw["kind"], qty, str(raw.get("note") or "")[:200] or None, day, ext_id=ext)
+            have_moves.add(ext)
+            added += 1
         return web.json_response({"added": added})
 
     async def index(request: web.Request) -> web.Response:
@@ -142,5 +255,7 @@ def add_kassa_routes(app: web.Application, authed: Callable[[web.Request], bool]
         web.get("/kassa", to_slash), web.get("/kassa/", index),
         web.get("/api/kassa", state), web.post("/api/kassa/add", add), web.post("/api/kassa/del", delete),
         web.post("/api/kassa/limit", limit), web.post("/api/kassa/import", import_local),
+        web.post("/api/kassa/stock/item", stock_item), web.post("/api/kassa/stock/item/del", stock_item_del),
+        web.post("/api/kassa/stock/move", stock_move), web.post("/api/kassa/stock/move/del", stock_move_del),
         web.static("/kassa", KASSA_DIR),
     ])
