@@ -102,17 +102,47 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
 .preview{text-align:center;font-size:.9rem;color:var(--muted);min-height:1.3em}
 .kindtag{font:700 1.15rem var(--display)}
 .kindtag.out{color:var(--out)} .kindtag.in{color:var(--in)}
+.item{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.item .head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:start}
+.item .name{font-weight:700;font-size:1.05rem;overflow-wrap:anywhere}
+.item .left{text-align:right}
+.item .left b{display:block;font:500 2rem/1 var(--mono);font-variant-numeric:tabular-nums}
+.item .left small{color:var(--muted);font-size:.8rem}
+.item .left.low b{color:var(--warn)} .item .left.zero b{color:var(--out)}
+.pill{display:inline-block;font-size:.74rem;font-weight:700;padding:3px 9px;border-radius:999px}
+.pill.warn{background:var(--warn-soft);color:var(--warn)} .pill.out{background:var(--out-soft);color:var(--out)}
+.mv{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mv button{border:0;border-radius:12px;padding:13px 6px;font-weight:700;font-size:1rem}
+.mv .use{background:var(--out-soft);color:var(--out)} .mv .come{background:var(--in-soft);color:var(--in)}
+.hist{border-top:1px solid var(--line);padding-top:6px}
+.hist>summary{cursor:pointer;color:var(--muted);font-size:.88rem;font-weight:600;padding:4px 0}
+.hline{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:8px 0;border-top:1px dashed var(--line);font-size:.9rem}
+.hline:first-of-type{border-top:0}
 @media (prefers-reduced-motion:no-preference){.sheet .panel{animation:up .18s ease-out}@keyframes up{from{transform:translateY(24px);opacity:.6}}}
 </style>
 </head>
 <body>
 <div class="wrap" id="app">
   <header><h1>Elegant Kassa</h1><span class="small muted" id="sync">📱 Telefonda saqlanadi</span></header>
+  <nav class="small" id="links" hidden style="display:flex;gap:14px;flex-wrap:wrap">
+    <a href="/">📋 Zakazlar</a><a href="/?tab=debts">💰 Qarzdorlar</a><a href="/?tab=sorov">🌐 So'rovlar</a><a href="/sayt" target="_blank">Sayt ↗</a></nav>
+  <form id="pinbox" method="post" action="/login" hidden style="display:flex;flex-direction:column;gap:10px">
+    <div class="msg warn">Bot bazasiga ulanish uchun PIN-kodni kiriting (admin saytdagi PIN).</div>
+    <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="PIN-kod" required>
+    <input type="hidden" name="next" value="/kassa/">
+    <button class="btn primary" type="submit">Kirish</button>
+  </form>
+  <div id="importbox"></div>
   <div class="seg" role="group" aria-label="Hisob">
     <button type="button" data-book="biznes" aria-pressed="true">Studiya</button>
     <button type="button" data-book="shaxsiy" aria-pressed="false">Shaxsiy</button>
   </div>
+  <div class="seg" id="viewseg" role="group" aria-label="Bo'lim">
+    <button type="button" data-view="pul" aria-pressed="true">💰 Pul</button>
+    <button type="button" data-view="ombor" aria-pressed="false">📦 Ombor</button>
+  </div>
   <div id="flash"></div>
+  <div id="v-pul" style="display:flex;flex-direction:column;gap:14px">
   <div class="big">
     <button type="button" class="out" id="btn-out"><b>−</b> Chiqim</button>
     <button type="button" class="in" id="btn-in"><b>+</b> Kirim</button>
@@ -146,9 +176,26 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
       <div class="small muted">Limitni o'chirish uchun summaga 0 yozing.</div>
     </form>
   </details>
+  </div>
+  <div id="v-ombor" hidden style="display:flex;flex-direction:column;gap:14px">
+    <div class="small muted">Foto qog'oz, ramka va boshqa narsalar: qancha keldi, qancha ishlatildi, qancha qoldi.</div>
+    <div id="stock" style="display:flex;flex-direction:column;gap:12px"><div class="empty">Yuklanmoqda…</div></div>
+    <details class="sec" id="item-sec"><summary>➕ Yangi mahsulot qo'shish</summary>
+      <form id="itemform" style="display:flex;flex-direction:column;gap:10px;margin-top:10px" autocomplete="off">
+        <div class="chips" id="item-suggest"></div>
+        <label class="f">Nomi<input id="i-name" maxlength="40" required placeholder="Masalan: Ramka 30×40"></label>
+        <div class="row2">
+          <label class="f">O'lchov<select id="i-unit"><option value="dona">dona</option><option value="list">list</option><option value="pachka">pachka</option><option value="rulon">rulon</option></select></label>
+          <label class="f">Hozir nechta bor<input id="i-start" inputmode="numeric" placeholder="0"></label>
+        </div>
+        <label class="f">Shundan kam qolsa ogohlantir<input id="i-min" inputmode="numeric" placeholder="Masalan: 10"></label>
+        <button class="btn" type="submit">Qo'shish</button>
+      </form>
+    </details>
+  </div>
   <details class="sec" id="bk-sec"><summary>Nusxa olish va tiklash</summary>
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
-      <div class="small muted" id="bk-info">Yozuvlar shu telefonda saqlanadi. Telefon almashsa yoki brauzer tozalansa yo'qolmasligi uchun haftada bir marta nusxa oling va faylni Telegram'dagi «Saqlangan xabarlar»ga yuboring.</div>
+      <div class="small muted" id="bk-info">Yozuvlar (pul va ombor) shu telefonda saqlanadi. Telefon almashsa yoki brauzer tozalansa yo'qolmasligi uchun haftada bir marta nusxa oling va faylni Telegram'dagi «Saqlangan xabarlar»ga yuboring.</div>
       <button type="button" class="btn" id="bk-save">⬇️ Nusxa olish (fayl)</button>
       <label class="btn" style="text-align:center;cursor:pointer">⬆️ Nusxadan tiklash<input type="file" id="bk-load" accept=".json,application/json" hidden></label>
     </div>
@@ -177,6 +224,22 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
   </div>
 </div>
 
+<div class="sheet" id="ssheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="s-title">
+    <form class="inner" id="stockform" autocomplete="off">
+      <div class="prow"><span class="kindtag" id="s-title">Ishlatildi</span>
+        <button type="button" class="btn ghost" id="s-close">Bekor qilish</button></div>
+      <div class="small muted" id="s-sub"></div>
+      <label class="f">Nechta?<input class="amountin" id="s-qty" inputmode="numeric" required placeholder="8"></label>
+      <label class="f" id="s-note-l">Izoh (ixtiyoriy)<input id="s-note" maxlength="200" placeholder="Aliyevlar to'yi"></label>
+      <label class="f" id="s-price-l">Qancha to'landi (ixtiyoriy — Pul bo'limiga chiqim bo'lib tushadi)<input id="s-price" inputmode="decimal" placeholder="Masalan: 500 ming"></label>
+      <label class="f">Sana<input type="date" id="s-day" required></label>
+      <div id="s-err"></div>
+      <button class="btn primary" type="submit" id="s-save">Saqlash</button>
+    </form>
+  </div>
+</div>
+
 <script>
 (() => {
   const BOOKS = {biznes: "Studiya", shaxsiy: "Shaxsiy"};
@@ -191,22 +254,66 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
   const MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
 
   const $ = id => document.getElementById(id);
-  const state = {book: "biznes", period: "month", offset: 0, entries: [], limits: {}, loaded: false};
+  const state = {book: "biznes", view: "pul", period: "month", offset: 0, entries: [], limits: {}, loaded: false,
+    items: [], moves: [], stockLoaded: false};
+  const UNITS = ["dona", "list", "pachka", "rulon"];
+  const SUGGEST = ["Foto qog'oz", "Ramka"];
   let form = {kind: "chiqim", cur: "UZS", cat: null};
   const KEY = "elegant-kassa-v1";
   function load() {
     try { const d = JSON.parse(localStorage.getItem(KEY) || "{}");
       state.entries = Array.isArray(d.entries) ? d.entries : []; state.limits = d.limits && typeof d.limits === "object" ? d.limits : {};
-    } catch (e) { state.entries = []; state.limits = {}; }
-    state.loaded = true;
+      state.items = Array.isArray(d.items) ? d.items : []; state.moves = Array.isArray(d.moves) ? d.moves : [];
+    } catch (e) { state.entries = []; state.limits = {}; state.items = []; state.moves = []; }
+    state.loaded = true; state.stockLoaded = true;
   }
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify({entries: state.entries, limits: state.limits, savedAt: Date.now()})); return true; }
+    try { localStorage.setItem(KEY, JSON.stringify({entries: state.entries, limits: state.limits, items: state.items, moves: state.moves, savedAt: Date.now()})); return true; }
     catch (e) { flash("err", "Saqlab bo'lmadi: telefonda joy tugagan bo'lishi mumkin.", 0); return false; }
   }
   const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
-  try { const b = localStorage.getItem("kassa.book"); if (b in BOOKS) state.book = b; } catch (e) {}
+  // Bot bilan bir manzildan ochilsa (/kassa/) — yozuvlar bot bazasida; GitHub Pages'da — telefonda.
+  const server = {on: false, orderCat: "Zakaz to'lovi"};
+  async function api(path, body) {
+    const r = await fetch("/api/kassa" + path, body === undefined ? {credentials: "same-origin"} :
+      {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    let d = {}; try { d = await r.json(); } catch (e) {}
+    if (!r.ok) throw Object.assign(new Error(d.error || "Server bilan aloqa yo'q."), {status: r.status});
+    return d;
+  }
+  async function loadServer() {
+    const d = await api("");
+    server.orderCat = d.orderCategory || server.orderCat;
+    state.entries = d.entries.map((e, i) => ({...e, createdAt: parseInt(e.id.slice(1), 10) || i}));
+    state.limits = {};
+    for (const l of Object.values(d.limits || {})) state.limits[limitId(l.book, l.category, l.currency)] = l;
+    state.items = d.items || []; state.moves = d.moves || [];
+    state.loaded = true; state.stockLoaded = true;
+  }
+  function localEntries() {
+    try { const d = JSON.parse(localStorage.getItem(KEY) || "{}");
+      return {entries: d.entries || [], limits: d.limits || {}, items: d.items || [], moves: d.moves || []}; }
+    catch (e) { return {entries: [], limits: {}, items: [], moves: []}; }
+  }
+  function showImport() {
+    const loc = localEntries();
+    const n = loc.entries.length + loc.moves.length;
+    $("importbox").innerHTML = n ? `<div class="msg warn">📲 Bu telefonda bazaga o'tmagan ${n} ta yozuv bor.
+      <button type="button" class="btn primary" id="do-import" style="margin-top:8px;width:100%">Bot bazasiga ko'chirish</button></div>` : "";
+    const b = $("do-import"); if (!b) return;
+    b.onclick = async () => {
+      b.disabled = true; b.textContent = "Ko'chirilmoqda…";
+      try {
+        const r = await api("/import", loc);
+        try { localStorage.setItem(KEY + "-kochirildi", localStorage.getItem(KEY)); localStorage.removeItem(KEY); } catch (e) {}
+        await loadServer(); render(); showImport(); flash("ok", `✅ ${r.added} ta yozuv bot bazasiga ko'chirildi.`);
+      } catch (e) { b.disabled = false; b.textContent = "Bot bazasiga ko'chirish"; flash("err", esc(e.message)); }
+    };
+  }
+
+  try { const b = localStorage.getItem("kassa.book"); if (b in BOOKS) state.book = b;
+    if (localStorage.getItem("kassa.view") === "ombor") state.view = "ombor"; } catch (e) {}
 
   // ---------- Helpers ----------
   const pad = n => String(n).padStart(2, "0");
@@ -257,7 +364,7 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
     const base = CATS[`${book}:${kind}`].slice();
     const known = new Set(base.map(c => c.toLowerCase()));
     const counts = {};
-    for (const e of state.entries) if (e.book === book && e.kind === kind && !known.has(e.category.toLowerCase()))
+    for (const e of state.entries) if (e.book === book && e.kind === kind && e.src !== "order" && !known.has(e.category.toLowerCase()))
       counts[e.category] = (counts[e.category] || 0) + 1;
     const extra = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
     base.splice(base.length - 1, 0, ...extra);
@@ -282,6 +389,11 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
 
   // ---------- Render ----------
   function render() {
+    const showStock = state.book === "biznes" && state.view === "ombor";
+    $("viewseg").hidden = state.book !== "biznes";
+    $("v-pul").hidden = showStock; $("v-ombor").hidden = !showStock;
+    document.querySelectorAll("[data-view]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.view === state.view)));
+    if (showStock) renderStock();
     document.querySelectorAll("[data-book]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.book === state.book)));
     document.querySelectorAll("[data-period]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.period === state.period)));
     const r = range(), [a, b] = r.map(iso);
@@ -312,7 +424,7 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
         const sign = e.kind === "kirim" ? "+" : "−", cls = e.kind === "kirim" ? "in" : "out";
         html += `<div class="line"><div><div class="cat">${esc(e.category)}</div>${e.note ? `<div class="note">${esc(e.note)}</div>` : ""}</div>
           <div class="amt ${cls}">${sign}${money(e.amount, e.currency)}</div>
-          <button type="button" class="del" data-del="${esc(e.id)}" aria-label="O'chirish">×</button></div>`;
+          ${e.src === "order" ? `<span class="small muted" title="Zakazlar bo'limidan">📋</span>` : `<button type="button" class="del" data-del="${esc(e.id)}" aria-label="O'chirish">×</button>`}</div>`;
       }
       $("ledger").innerHTML = `<div class="card">${html}</div>`;
     }
@@ -387,10 +499,20 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
     const category = ($("f-custom").value.trim() || form.cat || DEFAULT_CAT[form.kind]).slice(0, 40);
     const entry = {book: state.book, kind: form.kind, amount, currency: form.cur, category,
       note: $("f-note").value.trim().slice(0, 200), day: $("f-day").value || iso(today()), createdAt: Date.now()};
-    entry.id = newId();
-    state.entries.push(entry);
-    if (!save()) { state.entries.pop(); return; }
+    let serverWarn = "";
+    if (server.on) {
+      $("f-save").disabled = true;
+      try { const saved = await api("/add", entry); serverWarn = saved.warn || ""; entry.id = saved.id; entry.src = "cash"; entry.category = saved.category; }
+      catch (e) { $("f-err").innerHTML = `<div class="msg err">${esc(e.message)}</div>`; return; }
+      finally { $("f-save").disabled = false; }
+      state.entries.push(entry);
+    } else {
+      entry.id = newId();
+      state.entries.push(entry);
+      if (!save()) { state.entries.pop(); return; }
+    }
     closeSheet(); render();
+    if (serverWarn) { flash("warn", `✅ Yozildi: ${entry.kind === "kirim" ? "+" : "−"}${money(amount, entry.currency)} · ${esc(category)}<br>⚠️ ${esc(serverWarn)}`, 8000); return; }
     const info = `${entry.kind === "kirim" ? "+" : "−"}${money(amount, entry.currency)} · ${esc(category)}${entry.note ? " · " + esc(entry.note) : ""}`;
     const lim = state.limits[limitId(state.book, category, entry.currency)];
     if (entry.kind === "chiqim" && lim) {
@@ -408,8 +530,13 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
       b.classList.add("sure"); b.textContent = "O'chirish"; return;
     }
     const before = state.entries;
-    state.entries = state.entries.filter(x => x.id !== b.dataset.del);
-    if (!save()) { state.entries = before; return; }
+    if (server.on) {
+      try { await api("/del", {id: b.dataset.del}); } catch (err) { flash("err", esc(err.message)); return; }
+      state.entries = state.entries.filter(x => x.id !== b.dataset.del);
+    } else {
+      state.entries = state.entries.filter(x => x.id !== b.dataset.del);
+      if (!save()) { state.entries = before; return; }
+    }
     render(); flash("ok", "O'chirildi.");
   });
 
@@ -422,13 +549,157 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
     if (!cat || amt === null) { flash("err", "Kategoriya va summani yozing. Masalan: Reklama — 2 mln."); return; }
     cat = categories(state.book, "chiqim").find(c => c.toLowerCase() === cat.toLowerCase()) || cat;
     const id = limitId(state.book, cat, cur);
-    if (amt === 0) delete state.limits[id]; else state.limits[id] = {book: state.book, category: cat, currency: cur, amount: amt};
-    if (!save()) return;
+    if (server.on) {
+      try { await api("/limit", {book: state.book, category: cat, currency: cur, amount: amt}); } catch (e) { flash("err", esc(e.message)); return; }
+      if (amt === 0) delete state.limits[id]; else state.limits[id] = {book: state.book, category: cat, currency: cur, amount: amt};
+    } else {
+      if (amt === 0) delete state.limits[id]; else state.limits[id] = {book: state.book, category: cat, currency: cur, amount: amt};
+      if (!save()) return;
+    }
     render(); flash("ok", amt === 0 ? "Limit o'chirildi." : `Limit saqlandi: ${esc(cat)} — oyiga ${money(amt, cur)}.`);
     $("lim-cat").value = ""; $("lim-amt").value = "";
   });
 
+  // ---------- Ombor ----------
+  const qtyFmt = n => groups(n);
+  // Bot manzilida — API orqali bazaga, GitHub Pages'da — telefon xotirasiga
+  async function stockSave(path, body, local) {
+    if (server.on) { await api(path, body); await loadServer(); }
+    else { const before = JSON.stringify([state.entries, state.items, state.moves]); local();
+      if (!save()) { [state.entries, state.items, state.moves] = JSON.parse(before); throw new Error("Saqlab bo'lmadi: telefonda joy tugagan bo'lishi mumkin."); } }
+    render();
+  }
+  function itemStats(id) {
+    const pre = iso(today()).slice(0, 7); let left = 0, mIn = 0, mOut = 0;
+    for (const m of state.moves) if (m.itemId === id) {
+      left += m.kind === "in" ? m.qty : -m.qty;
+      if (m.day.startsWith(pre)) { if (m.kind === "in") mIn += m.qty; else mOut += m.qty; }
+    }
+    return {left, mIn, mOut};
+  }
+  function renderStock() {
+    const have = new Set(state.items.map(i => i.name.toLowerCase()));
+    $("item-suggest").innerHTML = SUGGEST.filter(n => !have.has(n.toLowerCase()))
+      .map(n => `<button type="button" class="chip" data-suggest="${esc(n)}">${esc(n)}</button>`).join("");
+    if (!state.stockLoaded) return;
+    if (!state.items.length) {
+      $("stock").innerHTML = `<div class="empty">Hali mahsulot yo'q.<br>Pastdagi <b>«Yangi mahsulot qo'shish»</b> ni oching va <b>Foto qog'oz</b> yoki <b>Ramka</b> ni bosing.</div>`;
+      $("item-sec").open = true; return;
+    }
+    const items = state.items.slice().sort((a, b) => a.name.localeCompare(b.name));
+    $("stock").innerHTML = items.map(it => {
+      const st = itemStats(it.id), zero = st.left <= 0, low = !zero && it.min > 0 && st.left <= it.min;
+      const pill = zero ? `<span class="pill out">Tugadi</span>` : low ? `<span class="pill warn">Kam qoldi</span>` : "";
+      const moves = state.moves.filter(m => m.itemId === it.id).sort((a, b) => b.day.localeCompare(a.day) || b.createdAt - a.createdAt);
+      const hist = moves.slice(0, 40).map(m => `<div class="hline"><div><b>${esc(dayLabel(m.day))}</b>${m.note ? ` · ${esc(m.note)}` : ""}</div>
+        <div class="amt ${m.kind === "in" ? "in" : "out"}">${m.kind === "in" ? "+" : "−"}${qtyFmt(m.qty)}</div>
+        <button type="button" class="del" data-mdel="${esc(m.id)}" aria-label="O'chirish">×</button></div>`).join("");
+      return `<article class="item">
+        <div class="head"><div><div class="name">${esc(it.name)}</div>
+          <div class="small muted">Bu oy: <span class="num">+${qtyFmt(st.mIn)}</span> keldi · <span class="num">−${qtyFmt(st.mOut)}</span> ishlatildi</div>
+          <div style="margin-top:6px">${pill}</div></div>
+          <div class="left${zero ? " zero" : low ? " low" : ""}"><b>${st.left < 0 ? "−" : ""}${qtyFmt(st.left)}</b><small>${esc(it.unit)} qoldi</small></div></div>
+        <div class="mv"><button type="button" class="use" data-move="out" data-item="${esc(it.id)}">− Ishlatildi</button>
+          <button type="button" class="come" data-move="in" data-item="${esc(it.id)}">+ Keldi</button></div>
+        <details class="hist"><summary>Tarix (${moves.length})</summary>${hist || `<div class="small muted">Hali harakat yo'q.</div>`}
+          <div style="margin-top:8px"><button type="button" class="btn ghost" data-idel="${esc(it.id)}">Mahsulotni o'chirish</button></div></details>
+      </article>`;
+    }).join("");
+  }
+
+  let smove = null;
+  function openStock(kind, itemId) {
+    const it = state.items.find(i => i.id === itemId); if (!it) return;
+    smove = {kind, it};
+    $("s-title").textContent = (kind === "in" ? "+ Keldi · " : "− Ishlatildi · ") + it.name;
+    $("s-title").className = "kindtag " + (kind === "in" ? "in" : "out");
+    $("s-sub").textContent = `Hozir omborda: ${qtyFmt(itemStats(it.id).left)} ${it.unit}`;
+    $("s-note").placeholder = kind === "in" ? "Kimdan / qayerdan" : "Aliyevlar to'yi";
+    $("s-price-l").hidden = kind !== "in";
+    $("s-qty").value = ""; $("s-note").value = ""; $("s-price").value = ""; $("s-err").innerHTML = "";
+    $("s-day").value = iso(today());
+    $("ssheet").hidden = false; setTimeout(() => $("s-qty").focus(), 50);
+  }
+  const closeStock = () => { $("ssheet").hidden = true; };
+  $("s-close").onclick = closeStock;
+  $("ssheet").addEventListener("click", e => { if (e.target.id === "ssheet") closeStock(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("ssheet").hidden) closeStock(); });
+
+  $("stock").addEventListener("click", async e => {
+    const mv = e.target.closest("[data-move]");
+    if (mv) { openStock(mv.dataset.move, mv.dataset.item); return; }
+    const md = e.target.closest("[data-mdel]"), idel = e.target.closest("[data-idel]");
+    const b = md || idel; if (!b) return;
+    if (!b.classList.contains("sure")) {
+      document.querySelectorAll("#stock .sure").forEach(x => { x.classList.remove("sure"); x.textContent = x.dataset.idel ? "Mahsulotni o'chirish" : "×"; });
+      b.classList.add("sure"); if (md) b.classList.add("del"); b.textContent = idel ? "Ha, butunlay o'chirilsin" : "O'chirish"; return;
+    }
+    b.disabled = true;
+    try {
+      if (md) {
+        const id = md.dataset.mdel;
+        await stockSave("/stock/move/del", {id}, () => { state.moves = state.moves.filter(m => m.id !== id); });
+        flash("ok", "O'chirildi.");
+      } else {
+        const id = idel.dataset.idel;
+        await stockSave("/stock/item/del", {id}, () => {
+          state.moves = state.moves.filter(m => m.itemId !== id); state.items = state.items.filter(i => i.id !== id); });
+        flash("ok", "Mahsulot o'chirildi.");
+      }
+    } catch (err) { b.disabled = false; flash("err", esc(err.message || "O'chirib bo'lmadi, qayta urinib ko'ring.")); }
+  });
+
+  $("stockform").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    if (!smove) return;
+    const qty = parseMoney($("s-qty").value), {kind, it} = smove;
+    if (!qty) { $("s-err").innerHTML = `<div class="msg err">Sonini yozing. Masalan: 8</div>`; return; }
+    const left = itemStats(it.id).left;
+    if (kind === "out" && qty > left) { $("s-err").innerHTML = `<div class="msg err">Omborda faqat ${qtyFmt(left)} ${esc(it.unit)} bor. Avval «+ Keldi» ni yozing.</div>`; return; }
+    const price = kind === "in" && $("s-price").value.trim() ? parseMoney($("s-price").value) : null;
+    if (kind === "in" && $("s-price").value.trim() && !price) { $("s-err").innerHTML = `<div class="msg err">Narxni tushunmadim. Masalan: 500 000 yoki 500 ming.</div>`; return; }
+    const day = $("s-day").value || iso(today()), note = $("s-note").value.trim().slice(0, 200), now = Date.now();
+    $("s-save").disabled = true;
+    try {
+      await stockSave("/stock/move", {itemId: it.id, kind, qty, note, day, price: price || 0}, () => {
+        state.moves.push({id: newId(), itemId: it.id, kind, qty, note, day, createdAt: now});
+        if (price) state.entries.push({id: newId(), book: "biznes", kind: "chiqim", amount: price, currency: "UZS",
+          category: it.name.slice(0, 40), note: `${qty} ${it.unit} keldi${note ? " · " + note : ""}`, day, createdAt: now});
+      });
+      closeStock();
+      const after = left + (kind === "in" ? qty : -qty);
+      let msg = `✅ ${esc(it.name)}: ${kind === "in" ? "+" : "−"}${qtyFmt(qty)} ${esc(it.unit)}. Qoldi: <b>${qtyFmt(after)}</b>`;
+      if (price) msg += `<br>Pul bo'limiga chiqim yozildi: ${money(price, "UZS")}`;
+      flash(kind === "out" && it.min > 0 && after <= it.min ? "warn" : "ok", msg + (kind === "out" && it.min > 0 && after <= it.min ? "<br>⚠️ Kam qoldi — buyurtma bering." : ""), 6000);
+    } catch (e) { $("s-err").innerHTML = `<div class="msg err">${esc(e.message || "Saqlab bo'lmadi, qayta bosing.")}</div>`; }
+    finally { $("s-save").disabled = false; }
+  });
+
+  $("item-suggest").addEventListener("click", e => {
+    const b = e.target.closest("[data-suggest]"); if (!b) return;
+    $("i-name").value = b.dataset.suggest; $("i-unit").value = b.dataset.suggest === "Foto qog'oz" ? "list" : "dona"; $("i-start").focus();
+  });
+  $("itemform").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const name = $("i-name").value.trim().slice(0, 40), unit = UNITS.includes($("i-unit").value) ? $("i-unit").value : "dona";
+    const start = $("i-start").value.trim() ? parseMoney($("i-start").value) : 0, min = $("i-min").value.trim() ? parseMoney($("i-min").value) : 0;
+    if (!name) return;
+    if (state.items.some(i => i.name.toLowerCase() === name.toLowerCase())) { flash("err", `«${esc(name)}» allaqachon bor.`); return; }
+    if (start === null || min === null) { flash("err", "Sonlarni to'g'ri yozing. Masalan: 50"); return; }
+    try {
+      await stockSave("/stock/item", {name, unit, min: min || 0, start: start || 0}, () => {
+        const id = newId(); state.items.push({id, name, unit, min: min || 0});
+        if (start > 0) state.moves.push({id: newId(), itemId: id, kind: "in", qty: start, note: "Boshlang'ich qoldiq", day: iso(today()), createdAt: Date.now()});
+      });
+      $("i-name").value = ""; $("i-start").value = ""; $("i-min").value = ""; $("item-sec").open = false;
+      flash("ok", `✅ Qo'shildi: ${esc(name)}${start ? ` — ${qtyFmt(start)} ${unit}` : ""}`);
+    } catch (e) { flash("err", esc(e.message || "Saqlab bo'lmadi, qayta urinib ko'ring.")); }
+  });
+
   // ---------- Navigation ----------
+  document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => {
+    state.view = b.dataset.view; try { localStorage.setItem("kassa.view", state.view); } catch (e) {} render();
+  });
   document.querySelectorAll("[data-book]").forEach(b => b.onclick = () => {
     state.book = b.dataset.book; try { localStorage.setItem("kassa.book", state.book); } catch (e) {} render();
   });
@@ -439,7 +710,7 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
   // ---------- Nusxa ----------
   $("bk-save").onclick = async () => {
     const name = `kassa-nusxa-${iso(today())}.json`;
-    const blob = new Blob([JSON.stringify({app: "elegant-kassa", version: 1, entries: state.entries, limits: state.limits}, null, 1)], {type: "application/json"});
+    const blob = new Blob([JSON.stringify({app: "elegant-kassa", version: 2, entries: state.entries.filter(e => e.src !== "order"), limits: state.limits, items: state.items, moves: state.moves}, null, 1)], {type: "application/json"});
     const file = new File([blob], name, {type: "application/json"});
     try {
       if (navigator.canShare && navigator.canShare({files: [file]})) { await navigator.share({files: [file], title: "Kassa nusxasi"}); flash("ok", "Nusxa tayyor."); return; }
@@ -453,15 +724,39 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
     try {
       const d = JSON.parse(await f.text());
       if (d.app !== "elegant-kassa" || !Array.isArray(d.entries)) throw new Error("bad");
+      if (server.on) {
+        const r = await api("/import", {entries: d.entries, limits: d.limits || {}, items: d.items || [], moves: d.moves || []});
+        await loadServer(); render(); flash("ok", `Tiklandi: ${r.added} ta yozuv bot bazasiga qo'shildi.`); return;
+      }
       const have = new Set(state.entries.map(e => e.id)); let added = 0;
       for (const e of d.entries) if (e && e.id && !have.has(e.id) && e.amount > 0) { state.entries.push(e); added++; }
       Object.assign(state.limits, d.limits || {});
+      const haveI = new Set(state.items.map(i => i.id)), haveM = new Set(state.moves.map(m => m.id));
+      for (const i of d.items || []) if (i && i.id && i.name && !haveI.has(i.id)) state.items.push(i);
+      for (const m of d.moves || []) if (m && m.id && m.qty > 0 && !haveM.has(m.id)) { state.moves.push(m); added++; }
       if (save()) { render(); flash("ok", `Tiklandi: ${added} ta yozuv qo'shildi.`); }
     } catch (e) { flash("err", "Bu fayl kassa nusxasi emas. «Nusxa olish» bilan olingan faylni tanlang."); }
   };
 
-  load();
-  render();
+  async function start() {
+    try {
+      await loadServer();
+      server.on = true;
+      $("sync").textContent = "🔗 Bot bazasida";
+      $("links").hidden = false;
+      $("bk-info").textContent = "Yozuvlar bot bazasida saqlanadi: kompyuter va telefonda bir xil. Zakaz to'lovlari Studiya kirimida o'zi chiqadi. Qo'shimcha nusxa uchun faylga saqlab qo'yishingiz mumkin.";
+      showImport();
+    } catch (e) {
+      if (e.status === 401) {  // bot manzili, lekin PIN kiritilmagan
+        $("pinbox").hidden = false;
+        $("sync").textContent = "🔒 Kirish kerak";
+        state.loaded = true; render(); return;
+      }
+      load();  // GitHub Pages yoki internet yo'q — telefon xotirasi
+    }
+    render();
+  }
+  start();
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
