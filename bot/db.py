@@ -162,6 +162,28 @@ CREATE TABLE IF NOT EXISTS photo_sales (
     UNIQUE (event_id, staff_id)
 );
 
+-- Studiya ombori: foto qog'oz, ramka va h.k. (qoldiq = kelgan − ishlatilgan)
+CREATE TABLE IF NOT EXISTS stock_items (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    unit       TEXT NOT NULL DEFAULT 'dona',
+    min_qty    INTEGER NOT NULL DEFAULT 0,  -- shundan kam qolsa ogohlantiriladi
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS stock_moves (
+    id         INTEGER PRIMARY KEY,
+    item_id    INTEGER NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+    kind       TEXT NOT NULL CHECK (kind IN ('in', 'out')),
+    qty        INTEGER NOT NULL CHECK (qty > 0),
+    note       TEXT,
+    day        TEXT NOT NULL,  -- YYYY-MM-DD
+    ext_id     TEXT,           -- telefondan ko'chirilganda: o'sha yozuvning id'si
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_moves_item ON stock_moves(item_id);
+
 -- Oddiy sozlamalar (masalan, srochne foto narxi)
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
@@ -641,6 +663,55 @@ class Database:
                 (book, category, currency),
             )
         await self.conn.commit()
+
+    # ---------- Ombor ----------
+
+    async def stock_items(self):
+        return await self._all(
+            "SELECT i.*, COALESCE(SUM(CASE m.kind WHEN 'in' THEN m.qty ELSE -m.qty END), 0) AS left_qty "
+            "FROM stock_items i LEFT JOIN stock_moves m ON m.item_id = i.id GROUP BY i.id ORDER BY i.name"
+        )
+
+    async def stock_item_get(self, item_id: int):
+        return await self._one(
+            "SELECT i.*, COALESCE(SUM(CASE m.kind WHEN 'in' THEN m.qty ELSE -m.qty END), 0) AS left_qty "
+            "FROM stock_items i LEFT JOIN stock_moves m ON m.item_id = i.id WHERE i.id = ? GROUP BY i.id",
+            (item_id,),
+        )
+
+    async def stock_item_by_name(self, name: str):
+        return await self._one("SELECT * FROM stock_items WHERE name = ?", (name,))
+
+    async def stock_item_add(self, name: str, unit: str, min_qty: int) -> int:
+        cur = await self.conn.execute(
+            "INSERT INTO stock_items (name, unit, min_qty) VALUES (?, ?, ?)", (name, unit, min_qty)
+        )
+        await self.conn.commit()
+        return cur.lastrowid
+
+    async def stock_item_delete(self, item_id: int) -> None:
+        await self.conn.execute("DELETE FROM stock_moves WHERE item_id = ?", (item_id,))
+        await self.conn.execute("DELETE FROM stock_items WHERE id = ?", (item_id,))
+        await self.conn.commit()
+
+    async def stock_moves(self):
+        return await self._all("SELECT * FROM stock_moves ORDER BY day DESC, id DESC")
+
+    async def stock_move_add(self, item_id: int, kind: str, qty: int, note: str | None, day: str,
+                             ext_id: str | None = None) -> int:
+        cur = await self.conn.execute(
+            "INSERT INTO stock_moves (item_id, kind, qty, note, day, ext_id) VALUES (?, ?, ?, ?, ?, ?)",
+            (item_id, kind, qty, note, day, ext_id),
+        )
+        await self.conn.commit()
+        return cur.lastrowid
+
+    async def stock_move_delete(self, move_id: int) -> None:
+        await self.conn.execute("DELETE FROM stock_moves WHERE id = ?", (move_id,))
+        await self.conn.commit()
+
+    async def stock_ext_ids(self) -> set[str]:
+        return {r["ext_id"] for r in await self._all("SELECT ext_id FROM stock_moves WHERE ext_id IS NOT NULL")}
 
     # ---------- Eslatmalar ----------
 
