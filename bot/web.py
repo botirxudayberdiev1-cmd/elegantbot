@@ -257,6 +257,10 @@ def order_card(o: dict, editors: list, bot_username: str, show_stage: bool) -> s
   <input type="hidden" name="order" value="{o['id']}"><input type="hidden" name="amount" value="{left}">
   <button type="submit">✓ Hammasi to'landi ({fmt_money(left)})</button>
 </form></details>"""
+        if o["client_tg_id"]:  # mijoz botga ulangan — qarzni muloyim eslatish mumkin (kuniga bir marta)
+            pay += f"""
+<form method="post" action="/remind" onsubmit="return confirm('Mijozga botda qolgan {fmt_money(left)} haqida eslatma yuborilsinmi?')">
+  <input type="hidden" name="order" value="{o['id']}"><button type="submit">📩 Botda eslatish</button></form>"""
     client = ('<div>🤖 Mijoz botga ulangan</div>' if o["client_tg_id"] else
               f'<div>🔗 Mijozga shu havolani yuboring — tayyor bo\'lganda bot o\'zi xabar beradi:</div>'
               f'<input readonly onclick="this.select()" value="https://t.me/{attr(bot_username)}?start=o_{attr(o["client_token"])}">')
@@ -290,6 +294,8 @@ FLASH = {
     "client_off": ("err", "Mijoz botga ulanmagan. Matnni nusxalab o'zingiz yuboring."),
     "notified": ("", "Belgilandi: mijozga xabar berildi."),
     "delivered": ("", "Topshirildi deb belgilandi."),
+    "reminded": ("", "📩 Mijozga qarz haqida eslatma yuborildi."),
+    "remind_once": ("err", "Bugun bu mijozga eslatma yuborilgan. Ertaga yana yuborish mumkin."),
 }
 
 
@@ -678,6 +684,30 @@ async def stage(request: web.Request) -> web.Response:
         await db.order_stamp(o["id"], "delivered_at")
         raise _back("montaj", m="delivered")
     raise _back("montaj")
+
+
+async def remind_debt(request: web.Request) -> web.Response:
+    """Qarzdor mijozga bot orqali muloyim eslatma (bir kunda bir martadan ko'p emas)."""
+    if not _authed(request):
+        raise web.HTTPSeeOther("/")
+    db: Database = request.app["db"]
+    o = await _order_or_back(request, await request.post())
+    left = o["total"] - o["paid"]
+    if left <= 0 or not o["client_tg_id"]:
+        raise _back("debts", m="client_off")
+    if not await db.reminder_claim("qarz", o["id"], today().isoformat()):
+        raise _back("debts", m="remind_once")
+    try:
+        await request.app["bot"].send_message(
+            o["client_tg_id"],
+            f"Assalomu alaykum, {escape(o['client_name'])}! Elegant Media studiyasidan.\n"
+            f"Buyurtmangiz №{o['id']} bo'yicha qolgan to'lov: <b>{fmt_money(left)}</b>.\n"
+            "Qulay vaqtda to'lab qo'ysangiz, xursand bo'lamiz. Savol bo'lsa, shu yerga yozing. Rahmat!",
+        )
+    except Exception as e:
+        log.warning("Qarz eslatmasi №%s mijoziga bormadi: %s", o["id"], e)
+        raise _back("debts", m="client_off")
+    raise _back("debts", m="reminded")
 
 
 # ---------- Kirim-chiqim ----------
@@ -1316,7 +1346,7 @@ def build_app(bot: Bot, db: Database, bot_username: str) -> web.Application:
         web.get("/", index), web.get("/new", new_form), web.post("/new", new_save),
         web.post("/login", login), web.post("/logout", logout), web.post("/pay", pay),
         web.post("/editor", set_editor), web.post("/stage", stage), web.get("/health", health),
-        web.post("/sorov", take_request),
+        web.post("/sorov", take_request), web.post("/remind", remind_debt),
         web.get("/maosh", payroll_page), web.post("/maosh/rates", payroll_rates), web.post("/maosh/pay", payroll_pay),
         web.post("/maosh/price", payroll_price),
         web.get("/media", media_page), web.post("/media/upload", media_upload), web.post("/media/del", media_delete),

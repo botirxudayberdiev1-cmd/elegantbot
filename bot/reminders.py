@@ -21,7 +21,7 @@ from .db import Database
 from .handlers.sales import sale_start_kb
 from .keyboards import assignment_kb, flash_kb
 from .notify import send_card
-from .utils import TZ, escape, fmt_date, notify_admins, now
+from .utils import TZ, escape, fmt_date, fmt_money, notify_admins, now
 
 log = logging.getLogger(__name__)
 
@@ -121,6 +121,30 @@ def admin_summary_text(tomorrow: date, rows) -> str | None:
     return "\n".join(lines)
 
 
+PICKUP_DAYS = 3
+
+
+async def not_picked_text(db: Database, today: date) -> str | None:
+    rows = []
+    for o in await db.orders_overview():
+        ready = o["ready_notified_at"] or o["editing_done_at"]
+        if o["delivered_at"] or not ready:
+            continue
+        days = (today - date.fromisoformat(ready[:10])).days
+        if days >= PICKUP_DAYS:
+            rows.append((days, o))
+    if not rows:
+        return None
+    lines = [f"📦 <b>Olib ketilmagan to'ylar: {len(rows)} ta</b>"]
+    for days, o in sorted(rows, key=lambda x: -x[0]):
+        left = o["total"] - o["paid"]
+        lines.append(f"• №{o['id']} {escape(o['client_name'])}, {escape(o['client_phone'] or '')} — tayyor bo'lganiga {days} kun"
+                     + (f", qarz {fmt_money(left)}" if left > 0 else "")
+                     + ("" if o["client_tg_id"] else " · botga ulanmagan, qo'ng'iroq qiling"))
+    lines.append("\nOlib ketilsa, saytda «Montaj» → «Topshirildi» ni bosing.")
+    return "\n".join(lines)
+
+
 async def check(bot: Bot, db: Database, t: datetime | None = None) -> None:
     t = t or now()
     today = t.date()
@@ -172,6 +196,11 @@ async def check(bot: Bot, db: Database, t: datetime | None = None) -> None:
                 log.warning("Savdo eslatmasi %s ga yuborilmadi: %s", f["staff_name"], e)
 
     if _at(today, ADMIN_SUMMARY_AT) <= t < _at(today, QUIET_FROM):
+        # «Tayyor» deyilganiga PICKUP_DAYS kundan oshgan, lekin olib ketilmagan to'ylar
+        if await db.reminder_claim("olib_ketilmagan", 0, today.isoformat()):
+            text = await not_picked_text(db, today)
+            if text:
+                await notify_admins(bot, db, text)
         if await db.reminder_claim("admin_kun", 0, today.isoformat()):
             text = admin_summary_text(today + timedelta(days=1), rows)
             if text:
