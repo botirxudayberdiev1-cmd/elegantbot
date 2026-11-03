@@ -4,7 +4,7 @@ from aiogram import Bot, Router
 from aiogram.types import CallbackQuery
 
 from ..db import Database
-from ..site import SrCb
+from ..site import SrCb, tell_client_taken
 from ..utils import escape, notify_admins
 
 router = Router(name="site_requests")
@@ -27,4 +27,5 @@ async def take_request(call: CallbackQuery, callback_data: SrCb, db: Database, b
     )
     await call.answer("Qabul qilindi")
     req = await db.site_request_get(callback_data.id)
+    await tell_client_taken(bot, req)
     await notify_admins(bot, db, f"✅ So'rov №{req['id']} ({escape(req['name'])}) — <b>{escape(who)}</b> qabul qildi.")

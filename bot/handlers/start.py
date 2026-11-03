@@ -106,6 +106,8 @@ async def start_plain(message: Message, db: Database, state: FSMContext):
         return
 
     await message.answer(
-        "Assalomu alaykum! Bu bot studiya xodimlari va mijozlari uchun.\n"
-        "Ulanish uchun admin bergan maxsus havolani bosing."
+        "Assalomu alaykum! Elegant Media studiyasiga xush kelibsiz 🎬\n\n"
+        "Ilovadan buyurtma berayotgan bo'lsangiz: xabar maydonini bosib turing, «Qo'yish» (Paste) ni tanlang "
+        "va yuboring — buyurtma matni ilovada nusxalangan.\n\n"
+        "Savolingiz bo'lsa, shu yerga yozing — studiyaga yetkaziladi."
     )

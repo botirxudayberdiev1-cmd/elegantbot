@@ -147,7 +147,8 @@ def _date(value) -> str:
 
 
 def request_text(req_id: int, kind: str, d: dict) -> str:
-    lines = [f"🌐 <b>{KIND_TITLE[kind]}</b> · so'rov №{req_id}",
+    title = "📱 <b>Ilovadan yangi buyurtma</b>" if d.get("source") == "ilova" else f"🌐 <b>{KIND_TITLE[kind]}</b>"
+    lines = [f"{title} · so'rov №{req_id}",
              f"👤 {escape(d['name'])}, {escape(d['phone'])}"]
     if d.get("telegram"):
         lines.append(f"✈️ {escape(d['telegram'])}")
@@ -235,6 +236,16 @@ async def new_request(request: web.Request) -> web.Response:
     req_id = await db.site_request_add(kind, data["name"], data["phone"], json.dumps(data, ensure_ascii=False))
     await send_request(request.app["bot"], db, req_id, kind, data)
     return web.json_response({"ok": True, "id": req_id})
+
+
+async def tell_client_taken(bot: Bot, req) -> None:
+    if not req or not req["client_tg_id"]:
+        return
+    try:
+        await bot.send_message(req["client_tg_id"], f"✅ Buyurtmangiz №{req['id']} qabul qilindi! "
+                                                     "Menejerimiz tez orada siz bilan bog'lanadi.")
+    except Exception as e:  # mijoz botni bloklagan bo'lishi mumkin
+        log.warning("So'rov №%s mijoziga xabar bormadi: %s", req["id"], e)
 
 
 def add_site_routes(app: web.Application) -> None:

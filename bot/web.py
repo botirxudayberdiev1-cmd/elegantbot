@@ -24,7 +24,8 @@ from .db import Database
 from .montaj import client_ready_text, send_to_client, send_to_editor
 from .kassa_api import add_kassa_routes
 from .notify import send_assignment
-from .site import IMAGE_EXT, MEDIA, SECTION_TITLE, VIDEO_EXT, add_site_routes, load_settings, save_settings
+from .site import (IMAGE_EXT, MEDIA, SECTION_TITLE, VIDEO_EXT, add_site_routes, load_settings, save_settings,
+                   tell_client_taken)
 from .utils import escape, fmt_date, fmt_money, normalize_phone, notify_admins, parse_money, parse_time, today
 
 log = logging.getLogger(__name__)
@@ -395,7 +396,7 @@ def request_card(r) -> str:
         if i["src"].startswith("/sayt/media/") and i["src"].rsplit(".", 1)[-1].lower() in ("jpg", "jpeg", "png", "webp", "gif")
         else f'<span class="pill grey">{SECTION_TITLE.get(i["section"], "")}: {escape(i["title"])}</span>'
         for i in d.get("items", []))
-    prefill = urlencode({"name": r["name"], "phone": r["phone"], "note": d.get("note") or ""})
+    prefill = urlencode({"name": r["name"], "phone": r["phone"], "note": d.get("note") or "", "sorov": r["id"]})
     take = ("" if r["status"] == "qabul" else
             f'<form method="post" action="/sorov"><input type="hidden" name="id" value="{r["id"]}">'
             f'<button class="okbtn" type="submit">✅ Qabul qildim</button></form>')
@@ -473,6 +474,7 @@ async def form_page(request: web.Request, values: dict | None = None, errors: li
   <header><h1>Yangi zakaz</h1><a class="btn" href="/">← Orqaga</a></header>
   {err}
   <form class="card" method="post" action="/new" enctype="multipart/form-data">
+    <input type="hidden" name="sorov" value="{attr(v.get('sorov'))}">
     <fieldset><legend>👤 Mijoz</legend><div class="grid2">
       <label>Ism<input name="name" value="{attr(v.get('name'))}" required placeholder="Botir"></label>
       <label>Telefon<input name="phone" value="{attr(v.get('phone'))}" inputmode="tel" required placeholder="91 943 76 76"></label>
@@ -500,7 +502,7 @@ async def new_form(request: web.Request) -> web.Response:
     if not _authed(request):
         raise web.HTTPSeeOther("/")
     q = request.query  # saytdagi so'rovdan «Zakaz yozish» bosilganda ism/telefon tayyor keladi
-    return await form_page(request, {k: q.get(k, "") for k in ("name", "phone", "note")})
+    return await form_page(request, {k: q.get(k, "") for k in ("name", "phone", "note", "sorov")})
 
 
 async def new_save(request: web.Request) -> web.Response:
@@ -511,7 +513,7 @@ async def new_save(request: web.Request) -> web.Response:
     form = await request.post()
     get = lambda k: str(form.get(k, "")).strip()  # noqa: E731
 
-    values = {k: get(k) for k in ("name", "phone", "services", "total", "deposit", "note")}
+    values = {k: get(k) for k in ("name", "phone", "services", "total", "deposit", "note", "sorov")}
     values["events"] = []
     photos = {}
     for i in range(MAX_EVENTS):
@@ -586,6 +588,12 @@ async def new_save(request: web.Request) -> web.Response:
             "services": [{"name": services[:100], "price": total}],
             "events": out_events, "note": values["note"][:500] or None}
     order_id, asg_ids = await db.order_create(data, next(iter(ADMIN_IDS), 0))
+    # Ilovadan kelgan so'rovdan yozilgan bo'lsa — mijoz Telegram'i zakazga ulanadi («tayyor» xabari uchun)
+    if values["sorov"].isdigit():
+        req = await db.site_request_get(int(values["sorov"]))
+        if req and req["client_tg_id"]:
+            await db.order_link_client(order_id, req["client_tg_id"])
+        await db.site_request_take(int(values["sorov"]), "Sayt (zakaz yozildi)")
     sent, failed = 0, []
     for asg_id in asg_ids:
         if await send_assignment(bot, db, asg_id):
@@ -1094,6 +1102,7 @@ async def take_request(request: web.Request) -> web.Response:
         raise _back("sorov")
     if await db.site_request_take(req_id, "Sayt (admin)"):
         r = await db.site_request_get(req_id)
+        await tell_client_taken(request.app["bot"], r)
         await notify_admins(request.app["bot"], db,
                             f"✅ So'rov №{req_id} ({escape(r['name'])}) saytda qabul qilindi.")
     raise _back("sorov")

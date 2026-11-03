@@ -216,6 +216,7 @@ class Database:
         await self.conn.executescript(SCHEMA)
         await self._migrate_staff_roles()
         await self._add_missing_columns("events", EVENT_NEW_COLUMNS)
+        await self._add_missing_columns("site_requests", {"client_tg_id": "INTEGER"})  # ilovadan — mijoz Telegram'i
         await self._add_missing_columns("cash", {"ext_id": "TEXT", "staff_id": "INTEGER", "pay_month": "TEXT"})
         # Ish haqi: oylik (salary) + har tadbir uchun odatiy summa (event_rate)
         await self._add_missing_columns("staff", {"salary": "INTEGER NOT NULL DEFAULT 0",
@@ -773,10 +774,11 @@ class Database:
 
     # ---------- Saytdan kelgan so'rovlar ----------
 
-    async def site_request_add(self, kind: str, name: str, phone: str, data: str) -> int:
+    async def site_request_add(self, kind: str, name: str, phone: str, data: str,
+                               client_tg_id: int | None = None) -> int:
         cur = await self.conn.execute(
-            "INSERT INTO site_requests (kind, name, phone, data) VALUES (?, ?, ?, ?)",
-            (kind, name, phone, data),
+            "INSERT INTO site_requests (kind, name, phone, data, client_tg_id) VALUES (?, ?, ?, ?, ?)",
+            (kind, name, phone, data, client_tg_id),
         )
         await self.conn.commit()
         return cur.lastrowid
