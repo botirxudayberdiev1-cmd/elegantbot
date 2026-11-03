@@ -13,8 +13,9 @@ from aiogram.filters import Filter
 from aiogram.types import Message
 
 from ..db import Database
+from ..keyboards import BTN_CLIENT, client_menu
 from ..site import send_request
-from ..utils import escape, normalize_phone, notify_admins, parse_date
+from ..utils import escape, fmt_date, fmt_money, normalize_phone, notify_admins, parse_date, today
 
 router = Router(name="app_orders")
 HEADER = "🎬 Yangi buyurtma"
@@ -78,7 +79,9 @@ async def app_order(message: Message, db: Database, bot: Bot):
     await send_request(bot, db, req_id, "buyurtma", d)
     await message.answer(
         f"✅ Rahmat, {escape(d['name'])}! Buyurtmangiz qabul qilindi (№{req_id}).\n"
-        "Menejerimiz tez orada siz bilan bog'lanadi. Ishingiz tayyor bo'lganda shu yerga xabar beramiz."
+        "Menejerimiz tez orada siz bilan bog'lanadi. Ishingiz tayyor bo'lganda shu yerga xabar beramiz.\n"
+        "Holatini ko'rish: «📋 Buyurtmam».",
+        reply_markup=client_menu(),
     )
 
 
@@ -90,6 +93,45 @@ class IsStranger(Filter):
         return not await db.is_admin(uid) and not await db.staff_by_tg(uid)
 
 
+# ---------- Mijoz: «📋 Buyurtmam» — holatini o'zi ko'radi ----------
+
+def _stage(o: dict, iso: str) -> str:
+    if o["delivered_at"]:
+        return "✅ Topshirilgan. Rahmat!"
+    if o["ready_notified_at"] or o["editing_done_at"]:
+        return "🎉 Tayyor! Studiyamizdan olib ketishingiz mumkin."
+    if o["events"] and all(e["date"] < iso for e in o["events"]):
+        return "🎞 Montaj qilinmoqda — tayyor bo'lganda shu yerga xabar beramiz."
+    return "📅 Tadbiringizga tayyorgarlik ko'rilmoqda."
+
+
+async def client_status_text(db: Database, tg_id: int) -> str:
+    iso = today().isoformat()
+    orders = [o for o in await db.orders_overview() if o["client_tg_id"] == tg_id]
+    # Zakazi bor mijozga faqat hali qabul qilinmagan so'rovlari ko'rsatiladi
+    requests = [r for r in await db.client_requests(tg_id) if r["status"] == "yangi" or not orders]
+    if not orders and not requests:
+        return ("Sizda hali buyurtma yo'q. Elegant Media ilovasidan buyurtma bering yoki "
+                "studiyaga qo'ng'iroq qiling.")
+    lines = ["📋 <b>Buyurtmalaringiz</b>"]
+    for o in orders:
+        lines.append(f"\n<b>№{o['id']} · {escape(o['client_name'])}</b>")
+        for e in sorted(o["events"], key=lambda e: e["date"]):
+            lines.append(f"🎉 {escape(e['type_name'])} — {fmt_date(e['date'])}{(', ' + e['time']) if e['time'] else ''}")
+        lines.append(_stage(o, iso))
+        left = o["total"] - o["paid"]
+        lines.append(f"💰 To'langan: {fmt_money(o['paid'])}" + (f", qoldi: <b>{fmt_money(left)}</b>" if left > 0 else " — to'liq ✅"))
+    for r in requests:
+        state = "qabul qilingan, menejer bog'lanadi" if r["status"] == "qabul" else "ko'rib chiqilmoqda"
+        lines.append(f"\n📝 So'rov №{r['id']} ({r['created_at'][8:10]}.{r['created_at'][5:7]}): {state}")
+    return "\n".join(lines)
+
+
+@router.message(IsStranger(), F.text.in_({BTN_CLIENT, "/holat"}))
+async def client_status(message: Message, db: Database):
+    await message.answer(await client_status_text(db, message.from_user.id), reply_markup=client_menu())
+
+
 # Ilovadan kelmagan oddiy xabar — adminlarga yetkaziladi (mijoz yo'qolib qolmasin)
 @router.message(IsStranger(), F.text)
 async def stranger(message: Message, db: Database, bot: Bot):
@@ -98,5 +140,6 @@ async def stranger(message: Message, db: Database, bot: Bot):
     await notify_admins(bot, db, f"💬 <b>Mijozdan xabar</b> — {who}:\n{escape(message.text[:1500])}")
     await message.answer(
         "Assalomu alaykum! Xabaringiz studiyaga yetkazildi, tez orada javob beramiz.\n"
-        "Buyurtma berish uchun Elegant Media ilovasidagi «Telegram orqali yuborish» tugmasidan foydalaning."
+        "Buyurtmangiz holati: «📋 Buyurtmam» tugmasi.",
+        reply_markup=client_menu(),
     )

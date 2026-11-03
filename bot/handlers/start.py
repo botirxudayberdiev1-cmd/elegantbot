@@ -1,11 +1,11 @@
 from aiogram import Bot, Router
 from aiogram.filters import CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, ReplyKeyboardRemove
+from aiogram.types import Message
 
 from ..config import ROLES
 from ..db import Database
-from ..keyboards import BTN_MY_JOBS, admin_menu, staff_menu
+from ..keyboards import BTN_CLIENT, BTN_MY_JOBS, admin_menu, client_menu, staff_menu
 from ..utils import escape, notify_admins
 
 router = Router(name="start")
@@ -36,8 +36,8 @@ async def link_client(message: Message, token: str, db: Database, bot: Bot):
     await message.answer(
         f"Assalomu alaykum, {escape(order['client_name'])}! 🎬\n"
         f"Elegant Media studiyasi: zakazingiz №{order['id']} qabul qilingan.\n"
-        "Ishingiz tayyor bo'lganda shu yerga xabar beramiz.",
-        reply_markup=ReplyKeyboardRemove(),
+        f"Ishingiz tayyor bo'lganda shu yerga xabar beramiz. Holatini ko'rish: «{BTN_CLIENT}».",
+        reply_markup=client_menu(),
     )
     await notify_admins(
         bot, db, f"👤 Mijoz <b>{escape(order['client_name'])}</b> (№{order['id']}) botga ulandi."
@@ -109,5 +109,7 @@ async def start_plain(message: Message, db: Database, state: FSMContext):
         "Assalomu alaykum! Elegant Media studiyasiga xush kelibsiz 🎬\n\n"
         "Ilovadan buyurtma berayotgan bo'lsangiz: xabar maydonini bosib turing, «Qo'yish» (Paste) ni tanlang "
         "va yuboring — buyurtma matni ilovada nusxalangan.\n\n"
-        "Savolingiz bo'lsa, shu yerga yozing — studiyaga yetkaziladi."
+        "Savolingiz bo'lsa, shu yerga yozing — studiyaga yetkaziladi.\n"
+        f"Buyurtmangiz holati: «{BTN_CLIENT}».",
+        reply_markup=client_menu(),
     )

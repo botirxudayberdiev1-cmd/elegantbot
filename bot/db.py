@@ -783,6 +783,13 @@ class Database:
         await self.conn.commit()
         return cur.lastrowid
 
+    async def client_requests(self, tg_id: int):
+        """Mijozning ilovadan yuborgan so'rovlari (oxirgi 5 tasi)."""
+        return await self._all(
+            "SELECT id, status, created_at FROM site_requests WHERE client_tg_id = ? ORDER BY id DESC LIMIT 5",
+            (tg_id,),
+        )
+
     async def site_requests(self, limit: int = 50):
         return await self._all(
             "SELECT * FROM site_requests ORDER BY status = 'qabul', id DESC LIMIT ?", (limit,)

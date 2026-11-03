@@ -49,6 +49,12 @@ def admin_menu() -> ReplyKeyboardMarkup:
 
 
 BTN_MY_JOBS = "📅 Mening ishlarim"
+BTN_CLIENT = "📋 Buyurtmam"
+
+
+def client_menu() -> ReplyKeyboardMarkup:
+    """Mijoz uchun: o'z buyurtmasi holatini ko'rish (studiyaga qo'ng'iroq qilmasdan)."""
+    return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=BTN_CLIENT)]], resize_keyboard=True)
 BTN_SALE = "📸 Savdo yozish"
 
 
