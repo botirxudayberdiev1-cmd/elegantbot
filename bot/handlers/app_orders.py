@@ -13,7 +13,7 @@ from aiogram.filters import Filter
 from aiogram.types import Message
 
 from ..db import Database
-from ..keyboards import BTN_CLIENT, client_menu
+from ..keyboards import BTN_CLIENT, admin_menu, client_menu, staff_menu
 from ..site import send_request
 from ..utils import escape, fmt_date, fmt_money, normalize_phone, notify_admins, parse_date, today
 
@@ -81,7 +81,7 @@ async def app_order(message: Message, db: Database, bot: Bot):
         f"✅ Rahmat, {escape(d['name'])}! Buyurtmangiz qabul qilindi (№{req_id}).\n"
         "Menejerimiz tez orada siz bilan bog'lanadi. Ishingiz tayyor bo'lganda shu yerga xabar beramiz.\n"
         "Holatini ko'rish: «📋 Buyurtmam».",
-        reply_markup=client_menu(),
+        reply_markup=await _menu_for(db, user.id),
     )
 
 
@@ -91,6 +91,14 @@ class IsStranger(Filter):
     async def __call__(self, message: Message, db: Database) -> bool:
         uid = message.from_user.id
         return not await db.is_admin(uid) and not await db.staff_by_tg(uid)
+
+
+async def _menu_for(db: Database, tg_id: int):
+    """Admin va xodimning o'z menyusi saqlanadi; mijozga — «📋 Buyurtmam»."""
+    if await db.is_admin(tg_id):
+        return admin_menu()
+    staff = await db.staff_by_tg(tg_id)
+    return staff_menu(staff["role"]) if staff else client_menu()
 
 
 # ---------- Mijoz: «📋 Buyurtmam» — holatini o'zi ko'radi ----------
@@ -127,9 +135,10 @@ async def client_status_text(db: Database, tg_id: int) -> str:
     return "\n".join(lines)
 
 
-@router.message(IsStranger(), F.text.in_({BTN_CLIENT, "/holat"}))
+@router.message(F.text.in_({BTN_CLIENT, "/holat"}))  # admin ham sinab ko'ra oladi
 async def client_status(message: Message, db: Database):
-    await message.answer(await client_status_text(db, message.from_user.id), reply_markup=client_menu())
+    await message.answer(await client_status_text(db, message.from_user.id),
+                         reply_markup=await _menu_for(db, message.from_user.id))
 
 
 # Ilovadan kelmagan oddiy xabar — adminlarga yetkaziladi (mijoz yo'qolib qolmasin)
